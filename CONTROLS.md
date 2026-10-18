@@ -212,6 +212,17 @@ The panel releases mouse capture and
 blocks gameplay input while open; close it, then click the game or press F2
 to resume mouse control.
 
+## Cheats
+
+Press **F7** to open or close the cheats overlay in the top-left corner of the
+game window. **Infinite ammo** stops the player's guns from using rounds, so the
+magazine never runs out and you never need to reload. NPC ammo is unchanged.
+If the magazine was already empty when you turned it on, reload once.
+Cheats last for the current session only and are never saved. Like the
+developer panel, the overlay blocks gameplay input while it is open; close it,
+then click the game or press F2 to resume mouse control. **Restore defaults** in
+the F5 panel also turns cheats off.
+
 ## Implementation
 
 Keyboard input uses Win32 window messages. Mouse look uses foreground Raw Input

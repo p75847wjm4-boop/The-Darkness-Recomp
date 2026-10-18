@@ -72,7 +72,7 @@ target_sources(DarkRuntime PRIVATE runtime/native/developer_tools.cpp
     runtime/native/developer_player.cpp runtime/native/developer_missions.cpp
     runtime/native/developer_invincibility.cpp runtime/native/developer_player_lookup.cpp
     runtime/native/developer_update.cpp runtime/native/developer_noclip.cpp
-    runtime/native/developer_darkness.cpp
+    runtime/native/developer_darkness.cpp runtime/native/developer_ammo.cpp
     runtime/native/developer_weapon_assets.cpp)
 target_include_directories(DarkRuntime PUBLIC "${CMAKE_SOURCE_DIR}")
 target_sources(DarkRuntime PRIVATE runtime/native/stall_profiler.cpp)
@@ -172,7 +172,7 @@ set_source_files_properties("${DARK_ICON_RESOURCE}" PROPERTIES
     OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/windows/darkrecomp.ico")
 add_executable(DarkRecomp app/windows/native_main.cpp app/windows/display_settings.cpp
     app/windows/developer_tools_window.cpp app/windows/keyboard_settings.cpp app/windows/mouse_settings.cpp
-    app/windows/achievements_window.cpp)
+    app/windows/achievements_window.cpp app/windows/cheats_overlay.cpp)
 target_sources(DarkRecomp PRIVATE "${DARK_ICON_RESOURCE}")
 set(DARK_VIDEO_MENU "${CMAKE_BINARY_DIR}/native_assets/CubeWnd.pc.xcr")
 set(DARK_VIDEO_MENU_RUSSIAN "${CMAKE_BINARY_DIR}/native_assets/CubeWnd.pc.ru.xcr")

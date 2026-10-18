@@ -11,7 +11,8 @@ struct DeveloperPlayerResult {
     std::string status;
 };
 DeveloperPlayerResult updateDeveloperPlayer(PPCContext& ctx, uint8_t* base,
-    uint32_t client, float speed, bool invincible, bool enabled, bool noclip = false);
+    uint32_t client, float speed, bool invincible, bool enabled, bool noclip = false,
+    bool infiniteAmmo = false);
 void resetDeveloperPlayer() noexcept;
 }
 void ApplyDeveloperHorizontalSpeedMidAsmHook(PPCRegister& actor, PPCRegister& state,

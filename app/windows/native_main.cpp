@@ -8,6 +8,7 @@
 #include "native_launch_paths.h"
 #include "resource.h"
 #include "developer_tools_window.h"
+#include "cheats_overlay.h"
 #include "achievements_window.h"
 #include "developer_resolution_shortcut.h"
 #include "keyboard_settings.h"
@@ -46,6 +47,7 @@
 using namespace DarkRecomp::Native;
 static NativeMouseWindow* mouseWindow = nullptr;
 static DeveloperToolsWindow* developerToolsWindow = nullptr;
+static CheatsOverlay* cheatsOverlay = nullptr;
 static AchievementsWindow* achievementsWindow = nullptr;
 static bool displayResizePending = false;
 static bool fullscreenTogglePending = false;
@@ -107,6 +109,7 @@ static LRESULT CALLBACK NativeWindowProc(HWND window, UINT message, WPARAM wPara
     // The modeless panel keeps rendering/engine updates running, but game
     // input and mouse capture stay suspended even if the owner gets focus.
     if (mouseWindow && (!developerToolsWindow || !developerToolsWindow->isOpen()) &&
+        (!cheatsOverlay || !cheatsOverlay->isOpen()) &&
         (!achievementsWindow || !achievementsWindow->isOpen())) {
         StallProfiler::Scope mouse(StallProfiler::Section::Other, "NativeWindowProc mouse",
             0, 0, message, "win32-message");
@@ -358,16 +361,17 @@ int wmain(int argc, wchar_t** argv) {
         if (fullscreen) displayWindow.toggleFullscreen();
         nativeInput().attachWindow(window);
         nativeInput().windowMessage(window, WM_ACTIVATEAPP, GetForegroundWindow() == window, 0);
-        struct ClearMouseWindow { ~ClearMouseWindow() { mouseWindow = nullptr; developerToolsWindow = nullptr; achievementsWindow = nullptr; } };
+        struct ClearMouseWindow { ~ClearMouseWindow() { mouseWindow = nullptr; developerToolsWindow = nullptr; cheatsOverlay = nullptr; achievementsWindow = nullptr; } };
         NativeMouseWindow mouse(window); mouseWindow = &mouse;
         NativeResolutionStatus resolutionStatus(window);
         if (!mouse.registered()) throw std::runtime_error("Cannot register native raw mouse input");
         DeveloperToolsWindow developerTools(window, mouse, [](bool enabled) {
             resolutionShortcut.setEnabled(enabled);
         }); developerToolsWindow = &developerTools;
+        CheatsOverlay cheats(window, mouse); cheatsOverlay = &cheats;
         AchievementsWindow achievements(window, mouse); achievementsWindow = &achievements;
         ClearMouseWindow clearMouseWindow;
-        puts("[Input] Native Win32 keyboard/raw mouse ready. Keyboard/mouse gameplay captures automatically after menus; click to recapture after manual release/Alt-Tab. Esc releases, F1 controls, F5 developer tools; optional F6 720p/1440p shortcut starts disabled. WASD=move; E=use; R=reload; captured Space=jump; menu Space=confirm/skip.");
+        puts("[Input] Native Win32 keyboard/raw mouse ready. Keyboard/mouse gameplay captures automatically after menus; click to recapture after manual release/Alt-Tab. Esc releases, F1 controls, F5 developer tools, F7 cheats; optional F6 720p/1440p shortcut starts disabled. WASD=move; E=use; R=reload; captured Space=jump; menu Space=confirm/skip.");
         if (!testInputPath.empty())
             puts("[InputTest] Opt-in script active: '<key> [<holdMs 1..10000>]' (bare menu 250ms, I/J/K/L 2000ms; 116=F5 panel,117=gated F6), 'mouse <dx> <dy>', 'capture', '0' inspect; 'dev open|close|status|defaults', 'dev mission <ID>', 'dev speed <preset>', 'dev invincible|noclip|resolution on|off', 'dev darkness unlock|max', 'dev capture <absolute BMP path>'; an invalid line blocks later commands until fixed; release lines report poll/nonneutral/change deltas.");
 
@@ -527,7 +531,13 @@ int wmain(int argc, wchar_t** argv) {
                     }
                     continue;
                 }
+                // One panel at a time: both share the developer-tools visibility flag.
+                if (message.message == WM_KEYDOWN && !(message.lParam & (LPARAM(1) << 30))) {
+                    if (message.wParam == VK_F7) { developerTools.close(); achievements.close(); }
+                    else if (message.wParam == VK_F5) cheats.close();
+                }
                 if (achievements.handleMessage(message)) continue;
+                if (cheats.handleMessage(message)) continue;
                 if (developerTools.handleMessage(message)) continue;
                 if(manualShadowCapture && message.hwnd==window && message.message==WM_KEYDOWN &&
                    message.wParam==VK_F8 && !(message.lParam&(LPARAM(1)<<30))) {
@@ -544,11 +554,11 @@ int wmain(int argc, wchar_t** argv) {
             if (message.message == WM_QUIT) break;
             {
                 StallProfiler::Scope update(StallProfiler::Section::Other, "native achievements update");
-                if (!developerTools.isOpen() && !keyboardMenuInputBlocked()) achievements.update();
+                if (!developerTools.isOpen() && !cheats.isOpen() && !keyboardMenuInputBlocked()) achievements.update();
             }
             {
                 StallProfiler::Scope capture(StallProfiler::Section::Other, "native mouse capture update");
-                mouse.updateGameplayCapture(!developerTools.isOpen() && !achievements.isOpen());
+                mouse.updateGameplayCapture(!developerTools.isOpen() && !cheats.isOpen() && !achievements.isOpen());
             }
             KeyboardMenuSaveRequest keyboardSave;
             {
@@ -1043,6 +1053,7 @@ int wmain(int argc, wchar_t** argv) {
         testInputReader.stop();
         sampler.stop();
         developerTools.close();
+        cheats.close();
         achievements.close();
         endKeyboardMenu();
         mouse.release();
