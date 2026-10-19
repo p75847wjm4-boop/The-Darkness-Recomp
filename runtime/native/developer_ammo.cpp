@@ -92,8 +92,18 @@ void configureDeveloperWeaponMods(uint8_t* base, uint32_t actor, bool rapid, boo
 extern "C" PPC_FUNC(__imp__sub_822C26C8);
 PPC_FUNC(sub_822C26C8) {
     const auto inventory = modInventory.load(std::memory_order_acquire);
-    if (inventory && activeBase.load(std::memory_order_acquire) == base &&
-        inventoryItem(base, inventory, ctx.r3.u32, 560)) {
+    const bool mine = inventory && activeBase.load(std::memory_order_acquire) == base &&
+        inventoryItem(base, inventory, ctx.r3.u32, 560);
+    // Weapon research: log the first calls while a weapon mod is on.
+    static std::atomic<unsigned> logged{0};
+    if (inventory && logged.fetch_add(1, std::memory_order_relaxed) < 40) {
+        const auto savedMath = _mm_getcsr();
+        std::fprintf(stderr, "[WeaponMods] weapon=%08X vtable=%08X shooter=%08X delay=%d f1=%g f2=%g mine=%d caller=%08X next=%u\n",
+            ctx.r3.u32, PPC_LOAD_U32(ctx.r3.u32), ctx.r4.u32, ctx.r5.s32, ctx.f1.f64, ctx.f2.f64, mine,
+            uint32_t(ctx.lr), PPC_LOAD_U32(ctx.r3.u32 + 556));
+        _mm_setcsr(savedMath);
+    }
+    if (mine) {
         if (rapidFire.load(std::memory_order_relaxed)) ctx.r5.u64 = 0;
         if (noRecoil.load(std::memory_order_relaxed)) { ctx.f1.f64 = 0; ctx.f2.f64 = 0; }
     }
@@ -128,6 +138,17 @@ PPC_FUNC(sub_82332428) {
 extern "C" PPC_FUNC(__imp__sub_82325CA8);
 PPC_FUNC(sub_82325CA8) {
     DarkRecomp::Native::StallProfiler::Scope stallProfile(DarkRecomp::Native::StallProfiler::Section::Guest, __func__, 0x82325CA8u, uint32_t(ctx.lr));
+    if (const auto inventory = modInventory.load(std::memory_order_acquire);
+        inventory && inventoryItem(base, inventory, ctx.r3.u32, 700)) {
+        static std::atomic<unsigned> logged{0};
+        if (logged.fetch_add(1, std::memory_order_relaxed) < 20) {
+            const auto savedMath = _mm_getcsr();
+            std::fprintf(stderr, "[WeaponMods] activate weapon=%08X vtable=%08X rounds=%d r8=%u delay308=%d flags584=%08X caller=%08X\n",
+                ctx.r3.u32, PPC_LOAD_U32(ctx.r3.u32), ctx.r4.s32, ctx.r8.u32 & 0xff,
+                int32_t(PPC_LOAD_U32(ctx.r3.u32 + 308)), PPC_LOAD_U32(ctx.r3.u32 + 584), uint32_t(ctx.lr));
+            _mm_setcsr(savedMath);
+        }
+    }
     if (ctx.r4.s32 > 0 && playerItem(base, ctx.r3.u32, kMagazineOffset + 4)) {
         if (probeEnabled() && skipped.fetch_add(1, std::memory_order_relaxed) < 16) {
             const auto savedMath = _mm_getcsr();
