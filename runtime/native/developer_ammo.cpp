@@ -7,11 +7,15 @@
 #include <cstdlib>
 
 namespace {
-// CRPG_Object_Ammo (factory 82332550, vtable 8206FAC8): +540 total rounds,
-// +728 magazine size, +732 loaded rounds, +736 maximum. Item::Activate 822C2C08
-// and the weapon fire paths draw rounds through vtable+288, 82332428.
+// Guns keep their magazine in the weapon: 82325CA8 (CRPG_Object_Summon::Activate,
+// reached from the Gun/Rifle/ShotGun activate overrides) subtracts its rounds
+// argument from int16 +396 unless +398 (magazine size) is FFFF or +584 bit 0x40
+// marks an authored unlimited weapon. Reloads move rounds from CRPG_Object_Ammo
+// (factory 82332550, vtable 8206FAC8: +540 total, +728 magazine size, +732
+// loaded, +736 maximum); item and minigun paths draw those through 82332428.
 constexpr uint32_t kAmmoVtable = 0x8206FAC8;
 constexpr uint32_t kLoadedOffset = 732;
+constexpr uint32_t kMagazineOffset = 396;
 constexpr uint32_t kInventoryOffset = 656;
 std::atomic<uint8_t*> activeBase{nullptr};
 std::atomic<uint32_t> activeInventory{0};
@@ -40,11 +44,10 @@ bool array(uint8_t* base, uint32_t address, uint32_t limit, uint32_t& data, uint
     return count <= limit && (!count || span(data, count * 4));
 }
 
-bool playerAmmo(uint8_t* base, uint32_t ammo) noexcept {
+bool playerItem(uint8_t* base, uint32_t item, uint32_t size) noexcept {
     const auto inventory = activeInventory.load(std::memory_order_acquire);
     if (!inventory || !DarkRecomp::Native::memory || base != DarkRecomp::Native::memory->base() ||
-        activeBase.load(std::memory_order_acquire) != base || !span(ammo, kLoadedOffset + 4) ||
-        PPC_LOAD_U32(ammo) != kAmmoVtable || !span(inventory, 28)) return false;
+        activeBase.load(std::memory_order_acquire) != base || !span(item, size) || !span(inventory, 28)) return false;
     uint32_t categories, categoryCount;
     if (!array(base, PPC_LOAD_U32(inventory + 24), 16, categories, categoryCount)) return false;
     for (uint32_t c = 0; c < categoryCount; ++c) {
@@ -52,7 +55,7 @@ bool playerAmmo(uint8_t* base, uint32_t ammo) noexcept {
         const auto category = PPC_LOAD_U32(categories + c * 4);
         if (!span(category, 28) || !array(base, PPC_LOAD_U32(category + 24), 4096, items, itemCount)) continue;
         for (uint32_t i = 0; i < itemCount; ++i)
-            if (PPC_LOAD_U32(items + i * 4) == ammo) return true;
+            if (PPC_LOAD_U32(items + i * 4) == item) return true;
     }
     return false;
 }
@@ -78,7 +81,8 @@ PPC_FUNC(sub_82332428) {
     DarkRecomp::Native::StallProfiler::Scope stallProfile(DarkRecomp::Native::StallProfiler::Section::Guest, __func__, 0x82332428u, uint32_t(ctx.lr));
     const auto ammo = ctx.r3.u32;
     const auto rounds = ctx.r4.s32;
-    if (rounds > 0 && playerAmmo(base, ammo) && int32_t(PPC_LOAD_U32(ammo + kLoadedOffset)) >= rounds) {
+    if (rounds > 0 && playerItem(base, ammo, kLoadedOffset + 4) && PPC_LOAD_U32(ammo) == kAmmoVtable &&
+        int32_t(PPC_LOAD_U32(ammo + kLoadedOffset)) >= rounds) {
         ctx.r3.u64 = uint32_t(rounds);
         if (probeEnabled() && skipped.fetch_add(1, std::memory_order_relaxed) < 16) {
             const auto savedMath = _mm_getcsr();
@@ -89,4 +93,22 @@ PPC_FUNC(sub_82332428) {
         return;
     }
     __imp__sub_82332428(ctx, base);
+}
+
+// Fire with zero rounds for the player's own weapons, as the original does for
+// an authored unlimited weapon. Shot counting, effects and projectiles still run.
+extern "C" PPC_FUNC(__imp__sub_82325CA8);
+PPC_FUNC(sub_82325CA8) {
+    DarkRecomp::Native::StallProfiler::Scope stallProfile(DarkRecomp::Native::StallProfiler::Section::Guest, __func__, 0x82325CA8u, uint32_t(ctx.lr));
+    if (ctx.r4.s32 > 0 && playerItem(base, ctx.r3.u32, kMagazineOffset + 4)) {
+        if (probeEnabled() && skipped.fetch_add(1, std::memory_order_relaxed) < 16) {
+            const auto savedMath = _mm_getcsr();
+            std::fprintf(stderr, "[InfiniteAmmo] weapon=%08X rounds=%d magazine=%d caller=%08X\n",
+                         ctx.r3.u32, ctx.r4.s32, int(int16_t(PPC_LOAD_U16(ctx.r3.u32 + kMagazineOffset))),
+                         uint32_t(ctx.lr));
+            _mm_setcsr(savedMath);
+        }
+        ctx.r4.u64 = 0;
+    }
+    __imp__sub_82325CA8(ctx, base);
 }
