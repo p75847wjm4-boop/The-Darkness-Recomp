@@ -1,4 +1,5 @@
 #include "input.h"
+#include "developer_tools.h"
 #include "keyboard_menu.h"
 #include "runtime.h"
 #include "stall_profiler.h"
@@ -936,7 +937,13 @@ XINPUT_GAMEPAD NativeInput::keyboardLocked() {
             {VK_RETURN, XINPUT_GAMEPAD_START}, {VK_TAB, XINPUT_GAMEPAD_BACK},
             {'E', XINPUT_GAMEPAD_A}, {VK_SPACE, XINPUT_GAMEPAD_A}, {VK_BACK, XINPUT_GAMEPAD_B}};
         for (auto binding : menu) if (keys_[binding.key]) pad.wButtons |= binding.button;
-    } else if (down(KeyboardAction::Jump)) pad.wButtons |= XINPUT_GAMEPAD_Y;
+    } else if (down(KeyboardAction::Jump)) {
+        // Bunny hop: re-press jump every 60 ms while held so each landing
+        // starts the next jump; holding also builds the hop speed boost.
+        const bool hop = developerBunnyHopEnabled();
+        noteDeveloperJumpHeld(hop);
+        if (!hop || (GetTickCount64() / 60) % 2 == 0) pad.wButtons |= XINPUT_GAMEPAD_Y;
+    } else noteDeveloperJumpHeld(false);
     if (keys_[VK_ESCAPE]) pad.wButtons |= escapePauses_ ? XINPUT_GAMEPAD_START : XINPUT_GAMEPAD_B;
     auto axis = [&](KeyboardAction negative, KeyboardAction positive) -> SHORT {
         if (down(negative) == down(positive)) return 0;

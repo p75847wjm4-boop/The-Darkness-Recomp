@@ -34,8 +34,7 @@ struct DeveloperSnapshot {
     bool invincible = false;
     bool noclip = false;
     bool infiniteAmmo = false;
-    bool rapidFire = false;
-    bool noRecoil = false;
+    bool bunnyHop = false;
     bool darklingGod = false;
     bool espBox = false;
     bool espSkeleton = false;
@@ -62,8 +61,12 @@ bool requestDeveloperSpeed(float multiplier);
 void requestDeveloperInvincibility(bool enabled);
 void requestDeveloperNoclip(bool enabled);
 void requestDeveloperInfiniteAmmo(bool enabled);
-void requestDeveloperRapidFire(bool enabled);
-void requestDeveloperNoRecoil(bool enabled);
+void requestDeveloperBunnyHop(bool enabled);
+// Input thread: whether held jump should re-press, and the held state.
+bool developerBunnyHopEnabled() noexcept;
+void noteDeveloperJumpHeld(bool held) noexcept;
+// Speed multiplier earned by holding jump: +30% per second, up to 2.5x.
+float developerBunnyHopBoost() noexcept;
 void requestDeveloperDarklingGod(bool enabled);
 void requestDeveloperEspBox(bool enabled);
 void requestDeveloperEspSkeleton(bool enabled);

@@ -44,7 +44,8 @@ bool array(uint8_t* base, uint32_t address, uint32_t limit, uint32_t& data, uint
     return count <= limit && (!count || span(data, count * 4));
 }
 
-bool inventoryItem(uint8_t* base, uint32_t inventory, uint32_t item, uint32_t size) noexcept {
+bool playerItem(uint8_t* base, uint32_t item, uint32_t size) noexcept {
+    const auto inventory = activeInventory.load(std::memory_order_acquire);
     if (!inventory || !DarkRecomp::Native::memory || base != DarkRecomp::Native::memory->base() ||
         activeBase.load(std::memory_order_acquire) != base || !span(item, size) || !span(inventory, 28)) return false;
     uint32_t categories, categoryCount;
@@ -58,11 +59,6 @@ bool inventoryItem(uint8_t* base, uint32_t inventory, uint32_t item, uint32_t si
     }
     return false;
 }
-bool playerItem(uint8_t* base, uint32_t item, uint32_t size) noexcept {
-    return inventoryItem(base, activeInventory.load(std::memory_order_acquire), item, size);
-}
-std::atomic<uint32_t> modInventory{0};
-std::atomic<bool> rapidFire{false}, noRecoil{false};
 }
 
 namespace DarkRecomp::Native {
@@ -74,47 +70,6 @@ void configureDeveloperInfiniteAmmo(uint8_t* base, uint32_t actor, bool infinite
     activeBase.store(base, std::memory_order_release);
     activeInventory.store(PPC_LOAD_U32(actor + kInventoryOffset), std::memory_order_release);
 }
-void configureDeveloperWeaponMods(uint8_t* base, uint32_t actor, bool rapid, bool steady, bool enabled) noexcept {
-    if (!enabled || !(rapid || steady) || !memory || base != memory->base() || !span(actor, kInventoryOffset + 4)) {
-        modInventory.store(0, std::memory_order_release);
-        return;
-    }
-    activeBase.store(base, std::memory_order_release);
-    rapidFire.store(rapid, std::memory_order_release);
-    noRecoil.store(steady, std::memory_order_release);
-    const auto inventory = PPC_LOAD_U32(actor + kInventoryOffset);
-    if (modInventory.exchange(inventory, std::memory_order_acq_rel) != inventory) {
-        const auto savedMath = _mm_getcsr();
-        std::fprintf(stderr, "[WeaponMods] on: rapid=%d recoil=%d inventory=%08X\n", rapid, steady, inventory);
-        _mm_setcsr(savedMath);
-    }
-}
-}
-// Original 822C26C8(weapon, shooter, delay, f1, f2) runs as each shot fires:
-// it sends f1 and f2 to the shooter as messages 101D/101C (the shot's kick),
-// then sets the next permitted fire tick at +556 to now + delay (weapon +308).
-// A zero delay stores tick 0, so the next trigger pull fires at once.
-extern "C" PPC_FUNC(__imp__sub_822C26C8);
-PPC_FUNC(sub_822C26C8) {
-    const auto inventory = modInventory.load(std::memory_order_acquire);
-    const bool mine = inventory && activeBase.load(std::memory_order_acquire) == base &&
-        inventoryItem(base, inventory, ctx.r3.u32, 560);
-    // Weapon research: log the first calls while a weapon mod is on.
-    static std::atomic<unsigned> logged{0};
-    if (inventory && logged.fetch_add(1, std::memory_order_relaxed) < 40) {
-        const auto savedMath = _mm_getcsr();
-        std::fprintf(stderr, "[WeaponMods] weapon=%08X vtable=%08X shooter=%08X delay=%d f1=%g f2=%g mine=%d caller=%08X next=%u\n",
-            ctx.r3.u32, PPC_LOAD_U32(ctx.r3.u32), ctx.r4.u32, ctx.r5.s32, ctx.f1.f64, ctx.f2.f64, mine,
-            uint32_t(ctx.lr), PPC_LOAD_U32(ctx.r3.u32 + 556));
-        _mm_setcsr(savedMath);
-    }
-    if (mine) {
-        if (rapidFire.load(std::memory_order_relaxed)) ctx.r5.u64 = 0;
-        if (noRecoil.load(std::memory_order_relaxed)) { ctx.f1.f64 = 0; ctx.f2.f64 = 0; }
-    }
-    const auto weapon = ctx.r3.u32;
-    __imp__sub_822C26C8(ctx, base);
-    if (mine && rapidFire.load(std::memory_order_relaxed)) PPC_STORE_U32(weapon + 556, 0);
 }
 
 // Original 82332428(ammo, rounds): take = min(loaded, rounds), draw take from the
@@ -145,17 +100,6 @@ PPC_FUNC(sub_82332428) {
 extern "C" PPC_FUNC(__imp__sub_82325CA8);
 PPC_FUNC(sub_82325CA8) {
     DarkRecomp::Native::StallProfiler::Scope stallProfile(DarkRecomp::Native::StallProfiler::Section::Guest, __func__, 0x82325CA8u, uint32_t(ctx.lr));
-    if (const auto inventory = modInventory.load(std::memory_order_acquire);
-        inventory && inventoryItem(base, inventory, ctx.r3.u32, 700)) {
-        static std::atomic<unsigned> logged{0};
-        if (logged.fetch_add(1, std::memory_order_relaxed) < 20) {
-            const auto savedMath = _mm_getcsr();
-            std::fprintf(stderr, "[WeaponMods] activate weapon=%08X vtable=%08X rounds=%d r8=%u delay308=%d flags584=%08X caller=%08X\n",
-                ctx.r3.u32, PPC_LOAD_U32(ctx.r3.u32), ctx.r4.s32, ctx.r8.u32 & 0xff,
-                int32_t(PPC_LOAD_U32(ctx.r3.u32 + 308)), PPC_LOAD_U32(ctx.r3.u32 + 584), uint32_t(ctx.lr));
-            _mm_setcsr(savedMath);
-        }
-    }
     if (ctx.r4.s32 > 0 && playerItem(base, ctx.r3.u32, kMagazineOffset + 4)) {
         if (probeEnabled() && skipped.fetch_add(1, std::memory_order_relaxed) < 16) {
             const auto savedMath = _mm_getcsr();
@@ -168,23 +112,3 @@ PPC_FUNC(sub_82325CA8) {
     }
     __imp__sub_82325CA8(ctx, base);
 }
-
-// Trigger checks refuse to fire while next-fire tick +556 minus now is
-// positive: 822DD880 (guns), 822C1DE0 (shared weapon base), 82325988 and
-// 8232D030. Retail restores +556 between shots after 822C26C8 sets it, so
-// clear it on the player's own weapon right before each check.
-namespace {
-void clearRefire(PPCContext& ctx, uint8_t* base) {
-    const auto inventory = modInventory.load(std::memory_order_acquire);
-    if (inventory && rapidFire.load(std::memory_order_relaxed) &&
-        activeBase.load(std::memory_order_acquire) == base && inventoryItem(base, inventory, ctx.r3.u32, 560))
-        PPC_STORE_U32(ctx.r3.u32 + 556, 0);
-}
-}
-#define DARK_REFIRE_CHECK(address) \
-    extern "C" PPC_FUNC(__imp__sub_##address); \
-    PPC_FUNC(sub_##address) { clearRefire(ctx, base); __imp__sub_##address(ctx, base); }
-DARK_REFIRE_CHECK(822DD880)
-DARK_REFIRE_CHECK(822C1DE0)
-DARK_REFIRE_CHECK(82325988)
-DARK_REFIRE_CHECK(8232D030)

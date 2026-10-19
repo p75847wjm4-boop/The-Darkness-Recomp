@@ -22,7 +22,7 @@ constexpr UINT_PTR kRefreshTimer = 1;
 enum : int {
     kSpeed = 2001, kInvincible, kNoclip, kInfiniteAmmo, kUnlock, kMaxDarkness, kAimbot,
     kWeapons, kGive, kBox, kSkeleton, kMission, kLoad, kShortcut, kDefaults, kProbe,
-    kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov, kHealth, kSpawnName, kSpawn, kDistance, kMaxDistance, kNames, kDarklingGod, kRapidFire, kNoRecoil
+    kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov, kHealth, kSpawnName, kSpawn, kDistance, kMaxDistance, kNames, kDarklingGod, kBunnyHop
 };
 constexpr int kWidth = 640, kHeight = 704;
 constexpr BYTE kOpacity = 235;
@@ -174,6 +174,7 @@ void CheatsOverlay::createControls() {
     control(window_, L"STATIC", L"SPEED", 0, 26, 64, 60, 18);
     speed_ = control(window_, L"COMBOBOX", L"", comboStyle, 90, 60, 130, 240, kSpeed);
     for (const auto* name : kSpeedNames) SendMessageW(speed_, CB_ADDSTRING, 0, LPARAM(name));
+    bunnyHop_ = check(window_, L"BHOP", 230, 62, 76, kBunnyHop);
     invincible_ = check(window_, L"GOD MODE", 26, 94, 130, kInvincible);
     noclip_ = check(window_, L"NOCLIP", 166, 94, 130, kNoclip);
     infiniteAmmo_ = check(window_, L"INFINITE AMMO", 26, 120, 136, kInfiniteAmmo);
@@ -196,15 +197,13 @@ void CheatsOverlay::createControls() {
 
     group(window_, L"WEAPONS", 12, 350, 304, 238);
     weapons_ = control(window_, L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP | WS_BORDER,
-                       26, 370, 276, 146, kWeapons);
+                       26, 370, 276, 176, kWeapons);
     for (const auto& weapon : developerWeapons()) {
         std::wstring title(weapon.title.begin(), weapon.title.end());
         CharUpperBuffW(title.data(), DWORD(title.size()));
         SendMessageW(weapons_, LB_ADDSTRING, 0, LPARAM(title.c_str()));
     }
     SendMessageW(weapons_, LB_SETCURSEL, 0, 0);
-    rapidFire_ = check(window_, L"RAPID FIRE", 26, 524, 130, kRapidFire);
-    noRecoil_ = check(window_, L"NO RECOIL", 166, 524, 130, kNoRecoil);
     give_ = button(window_, L"GIVE", 26, 552, 90, kGive);
 
     // Right column: visuals, mission, settings, status.
@@ -275,7 +274,7 @@ void CheatsOverlay::refresh() {
     if (!window_ || !status_) return;
     const auto snapshot = developerSnapshot();
     const bool player = snapshot.hasActivePlayer;
-    for (const HWND control : {speed_, invincible_, noclip_, infiniteAmmo_, darklingGod_, rapidFire_, noRecoil_, unlock_, maxDarkness_, aimbot_,
+    for (const HWND control : {speed_, invincible_, noclip_, infiniteAmmo_, darklingGod_, bunnyHop_, unlock_, maxDarkness_, aimbot_,
                                weapons_, give_, box_, skeleton_, tracers_, spawn_, spawnButton_})
         EnableWindow(control, player);
     EnableWindow(mission_, snapshot.canLoadMission);
@@ -291,8 +290,7 @@ void CheatsOverlay::refresh() {
     setCheck(noclip_, snapshot.noclip);
     setCheck(infiniteAmmo_, snapshot.infiniteAmmo);
     setCheck(darklingGod_, snapshot.darklingGod);
-    setCheck(rapidFire_, snapshot.rapidFire);
-    setCheck(noRecoil_, snapshot.noRecoil);
+    setCheck(bunnyHop_, snapshot.bunnyHop);
     setCheck(aimbot_, snapshot.aimbot);
     setCheck(box_, snapshot.espBox);
     setCheck(skeleton_, snapshot.espSkeleton);
@@ -352,8 +350,7 @@ void CheatsOverlay::restoreDefaults() {
     requestDeveloperNoclip(false);
     requestDeveloperInfiniteAmmo(false);
     requestDeveloperDarklingGod(false);
-    requestDeveloperRapidFire(false);
-    requestDeveloperNoRecoil(false);
+    requestDeveloperBunnyHop(false);
     requestDeveloperAimbot(false);
     requestDeveloperEspBox(false);
     requestDeveloperEspSkeleton(false);
@@ -375,8 +372,7 @@ void CheatsOverlay::command(int id, int notification) {
     case kNoclip: if (clicked) requestDeveloperNoclip(checked(noclip_)); break;
     case kInfiniteAmmo: if (clicked) requestDeveloperInfiniteAmmo(checked(infiniteAmmo_)); break;
     case kDarklingGod: if (clicked) requestDeveloperDarklingGod(checked(darklingGod_)); break;
-    case kRapidFire: if (clicked) requestDeveloperRapidFire(checked(rapidFire_)); break;
-    case kNoRecoil: if (clicked) requestDeveloperNoRecoil(checked(noRecoil_)); break;
+    case kBunnyHop: if (clicked) requestDeveloperBunnyHop(checked(bunnyHop_)); break;
     case kUnlock: if (clicked && developerSnapshot().hasActivePlayer) requestDeveloperUnlockDarkness(); break;
     case kMaxDarkness: if (clicked && developerSnapshot().hasActivePlayer) requestDeveloperMaxDarkness(); break;
     case kAimbot: if (clicked) requestDeveloperAimbot(checked(aimbot_)); break;
@@ -510,7 +506,7 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
         const bool restoreFocus = foreground == closed || foreground == owner_;
         KillTimer(closed, kRefreshTimer);
         SetWindowLongPtrW(closed, GWLP_USERDATA, 0);
-        window_ = speed_ = invincible_ = noclip_ = infiniteAmmo_ = darklingGod_ = rapidFire_ = noRecoil_ = unlock_ = maxDarkness_ = aimbot_ =
+        window_ = speed_ = invincible_ = noclip_ = infiniteAmmo_ = darklingGod_ = bunnyHop_ = unlock_ = maxDarkness_ = aimbot_ =
             weapons_ = give_ = box_ = skeleton_ = mission_ = load_ = shortcut_ = defaults_ = status_ =
             tracers_ = boxColor_ = boneColor_ = tracerColor_ = opacity_ = opacityValue_ = fov_ = fovValue_ =
             fovCircle_ = cameraFov_ = cameraFovValue_ = health_ = distance_ = names_ = maxDistance_ = maxDistanceValue_ = spawn_ = spawnButton_ = nullptr;

@@ -3,6 +3,7 @@
 #include "developer_invincibility.h"
 #include "developer_noclip.h"
 #include "developer_player_lookup.h"
+#include "developer_tools.h"
 #include "runtime.h"
 #include "ppc_recomp_shared.h"
 #include <atomic>
@@ -15,6 +16,7 @@ namespace {
 std::atomic<uint8_t*> activeBase{nullptr};
 std::atomic<uint64_t> activePlayer{0};
 std::atomic<float> activeSpeed{1};
+std::atomic<bool> activeBoost{false};
 
 float movementMultiplier(const PPCRegister& actor, const PPCRegister& state) {
     const auto player = activePlayer.load(std::memory_order_acquire);
@@ -22,7 +24,8 @@ float movementMultiplier(const PPCRegister& actor, const PPCRegister& state) {
         !DarkRecomp::Native::memory || activeBase.load(std::memory_order_acquire) != DarkRecomp::Native::memory->base()) return 1;
     auto* base = DarkRecomp::Native::memory->base();
     if (PPC_LOAD_U32(actor.u32 + 396) != state.u32) return 1;
-    return activeSpeed.load(std::memory_order_acquire);
+    const float boost = activeBoost.load(std::memory_order_acquire) ? DarkRecomp::Native::developerBunnyHopBoost() : 1;
+    return activeSpeed.load(std::memory_order_acquire) * boost;
 }
 
 bool probeEnabled() {
@@ -40,13 +43,12 @@ void resetDeveloperPlayer() noexcept {
     configureDeveloperInvincibility(nullptr, 0, 0, false, false);
     configureDeveloperNoclip(nullptr, 0, 0, false, false);
     configureDeveloperInfiniteAmmo(nullptr, 0, false, false);
-    configureDeveloperWeaponMods(nullptr, 0, false, false, false);
     configureDeveloperDarklingGod(false);
 }
 
 DeveloperPlayerResult updateDeveloperPlayer(PPCContext& ctx, uint8_t* base, uint32_t client,
     float speed, bool invincible, bool enabled, bool noclip, bool infiniteAmmo,
-    bool rapidFire, bool noRecoil, bool darklingGod) {
+    bool darklingGod, bool bunnyHop) {
     const auto player = resolveDeveloperPlayer(ctx, base, client);
     const bool available = player.actor && player.state;
     const bool validSpeed = std::isfinite(speed) && speed >= 0.25f && speed <= 4;
@@ -54,10 +56,10 @@ DeveloperPlayerResult updateDeveloperPlayer(PPCContext& ctx, uint8_t* base, uint
     configureDeveloperInvincibility(base, player.actor, player.state, invincible, apply);
     configureDeveloperNoclip(base, player.actor, player.state, noclip, apply);
     configureDeveloperInfiniteAmmo(base, player.actor, infiniteAmmo, apply);
-    configureDeveloperWeaponMods(base, player.actor, rapidFire, noRecoil, apply);
     configureDeveloperDarklingGod(apply && darklingGod);
     activePlayer.store(0, std::memory_order_release);
-    if (apply && speed != 1) {
+    activeBoost.store(apply && bunnyHop, std::memory_order_release);
+    if (apply && (speed != 1 || bunnyHop)) {
         activeBase.store(base, std::memory_order_release);
         activeSpeed.store(speed, std::memory_order_release);
         activePlayer.store((uint64_t(player.actor) << 32) | player.state, std::memory_order_release);

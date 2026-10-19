@@ -1,4 +1,5 @@
 #include "developer_tools.h"
+#include <windows.h>
 #include "developer_missions.h"
 #include "developer_player.h"
 #include "developer_invincibility.h"
@@ -30,6 +31,8 @@ bool pendingDarknessLevel = false;
 uint64_t requestRevision = 0;
 bool panelVisible = false;
 std::atomic<bool> needsUpdate{false};
+std::atomic<bool> bunnyHopOn{false};
+std::atomic<uint64_t> jumpHeldSince{0};
 
 void refreshWorkLocked() {
     needsUpdate.store(panelVisible || pendingMission.has_value() || pendingWeapon.has_value() || pendingSpawn.has_value() || pendingProbe || playerToolsEnabled ||
@@ -52,7 +55,7 @@ void publish(uint64_t request, bool canLoad, bool hasPlayer, std::string_view st
     if (playerApplied && status.empty() &&
         (state.status == "Player speed queued." || state.status == "Invincibility queued." ||
          state.status == "Noclip queued." || state.status == "Infinite ammo queued." ||
-         state.status == "Rapid fire queued." || state.status == "No recoil queued." ||
+         state.status == "Bunny hop queued." ||
          state.status == "Darkling god mode queued." ||
          state.status == "ESP queued." || state.status == "Aimbot queued."))
         status = "Player settings applied.";
@@ -63,7 +66,7 @@ void publish(uint64_t request, bool canLoad, bool hasPlayer, std::string_view st
     // hooks. A request arriving during that update must keep its next update.
     if (playerProcessed && requestRevision == request && state.playerSpeed == 1 &&
         !state.invincible && !state.noclip && !state.infiniteAmmo &&
-        !state.rapidFire && !state.noRecoil && !state.darklingGod &&
+        !state.darklingGod && !state.bunnyHop &&
         !state.espBox && !state.espSkeleton && !state.espTracers &&
         !state.aimbot) playerToolsEnabled = false;
     refreshWorkLocked();
@@ -229,18 +232,25 @@ void requestDeveloperInfiniteAmmo(bool enabled) {
     requested("Infinite ammo queued.");
 }
 
-void requestDeveloperRapidFire(bool enabled) {
+void requestDeveloperBunnyHop(bool enabled) {
     std::lock_guard lock(stateMutex);
-    state.rapidFire = enabled;
+    state.bunnyHop = enabled;
+    bunnyHopOn.store(enabled, std::memory_order_release);
     playerToolsEnabled = true;
-    requested("Rapid fire queued.");
+    requested("Bunny hop queued.");
 }
-
-void requestDeveloperNoRecoil(bool enabled) {
-    std::lock_guard lock(stateMutex);
-    state.noRecoil = enabled;
-    playerToolsEnabled = true;
-    requested("No recoil queued.");
+bool developerBunnyHopEnabled() noexcept { return bunnyHopOn.load(std::memory_order_acquire); }
+void noteDeveloperJumpHeld(bool held) noexcept {
+    // Milliseconds since the jump key went down while hopping; 0 = released.
+    if (!held) { jumpHeldSince.store(0, std::memory_order_release); return; }
+    uint64_t expected = 0;
+    jumpHeldSince.compare_exchange_strong(expected, GetTickCount64(), std::memory_order_acq_rel);
+}
+float developerBunnyHopBoost() noexcept {
+    const auto since = jumpHeldSince.load(std::memory_order_acquire);
+    if (!bunnyHopOn.load(std::memory_order_acquire) || !since) return 1;
+    const float seconds = float(GetTickCount64() - since) / 1000;
+    return (std::min)(2.5f, 1 + 0.3f * seconds);
 }
 
 void requestDeveloperDarklingGod(bool enabled) {
@@ -321,7 +331,7 @@ void resetDeveloperTools() {
 bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool missionReady) {
     std::optional<std::string> mission, weapon, spawn;
     float speed;
-    bool invincible, noclip, infiniteAmmo, rapidFire, noRecoil, darklingGod, espBox, espSkeleton, espTracers, aimbot, enabled, unlockDarkness, maxDarkness, probe, overlay;
+    bool invincible, noclip, infiniteAmmo, darklingGod, bunnyHop, espBox, espSkeleton, espTracers, aimbot, enabled, unlockDarkness, maxDarkness, probe, overlay;
     uint64_t request;
     {
         std::lock_guard lock(stateMutex);
@@ -335,8 +345,7 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         invincible = state.invincible;
         noclip = state.noclip;
         infiniteAmmo = state.infiniteAmmo;
-        rapidFire = state.rapidFire;
-        noRecoil = state.noRecoil;
+        bunnyHop = state.bunnyHop;
         darklingGod = state.darklingGod;
         espBox = state.espBox;
         espSkeleton = state.espSkeleton;
@@ -370,7 +379,7 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         return canLoad;
     }
     const auto player = updateDeveloperPlayer(call, base, client, speed, invincible, enabled, noclip, infiniteAmmo,
-                                              rapidFire, noRecoil, darklingGod);
+                                              darklingGod, bunnyHop);
     const bool esp = espBox || espSkeleton || espTracers;
     setSkeletonCapture((enabled && esp) || overlay);
     if (enabled && (esp || aimbot))
