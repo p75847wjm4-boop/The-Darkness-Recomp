@@ -87,20 +87,51 @@ void dumpDeveloperProbe(PPCContext& ctx, uint8_t* base, uint32_t client) {
         out[n] = 0;
         return n >= 4 && n + 1 < size;
     };
+    // ASCII runs of six or more inside [address, address + bytes).
+    const auto runs = [&](const char* label, uint32_t id, uint32_t address, uint32_t bytes) {
+        if (!readable(base, address, bytes)) return;
+        std::string run;
+        for (uint32_t i = 0; i <= bytes; ++i) {
+            const auto c = i < bytes ? char(PPC_LOAD_U8(address + i)) : char(0);
+            if (c >= 32 && c <= 126) { run += c; continue; }
+            if (run.size() >= 6 && run.size() < 80)
+                std::fprintf(stderr, "[Probe %u] name id=%u %s+%u \"%s\"\n", dumpCount, id, label,
+                             i - uint32_t(run.size()), run.c_str());
+            run.clear();
+        }
+    };
+    const auto scan = [&](const char* label, uint32_t id, uint32_t object, uint32_t bytes) {
+        runs(label, id, object, bytes);
+        char found[64];
+        for (uint32_t offset = 4; offset < bytes; offset += 4) {
+            const auto value = PPC_LOAD_U32(object + offset);
+            if (text(value, found, sizeof(found))) {
+                std::fprintf(stderr, "[Probe %u] name id=%u %s+%u* \"%s\"\n", dumpCount, id, label, offset, found);
+                continue;
+            }
+            if (!readable(base, value, 128) || value == object) continue;
+            for (uint32_t inner = 0; inner < 128; inner += 4) {
+                const auto deeper = PPC_LOAD_U32(value + inner);
+                if (text(deeper, found, sizeof(found)))
+                    std::fprintf(stderr, "[Probe %u] name id=%u %s+%u+%u* \"%s\"\n", dumpCount, id, label,
+                                 offset, inner, found);
+            }
+            char inline_[96];
+            for (uint32_t inner = 0; inner < 32; inner += 4)
+                if (text(value + inner, inline_, sizeof(inline_)))
+                    { std::fprintf(stderr, "[Probe %u] name id=%u %s+%u>%u \"%s\"\n", dumpCount, id, label,
+                                   offset, inner, inline_); break; }
+        }
+    };
+    // The newest NPCs first, so spawned ones (known template) are included.
     unsigned npcs = 0;
-    for (uint32_t id = 1; id < count && npcs < 6; ++id) {
+    for (uint32_t id = count; id-- > 1 && npcs < 4;) {
         const auto object = PPC_LOAD_U32(items + id * 4);
         if (!readable(base, object, 2048) || PPC_LOAD_U32(object) != 0x820626C8) continue;
         ++npcs;
-        char found[64];
-        for (uint32_t offset = 4; offset < 2048; offset += 4) {
-            const auto value = PPC_LOAD_U32(object + offset);
-            if (text(value, found, sizeof(found)))
-                std::fprintf(stderr, "[Probe %u] name id=%u +%u \"%s\"\n", dumpCount, id, offset, found);
-            else if (readable(base, value, 64)) for (uint32_t inner = 0; inner < 64; inner += 4)
-                if (text(PPC_LOAD_U32(value + inner), found, sizeof(found)))
-                    std::fprintf(stderr, "[Probe %u] name id=%u +%u+%u \"%s\"\n", dumpCount, id, offset, inner, found);
-        }
+        scan("obj", id, object, 2048);
+        const auto rpg = PPC_LOAD_U32(object + 656);
+        if (readable(base, rpg, 1024)) scan("rpg", id, rpg, 1024);
     }
     // Skeleton research: the nearest spawned NPC's client object, plus the
     // objects its first pointers reference (bone matrices live off-object).
