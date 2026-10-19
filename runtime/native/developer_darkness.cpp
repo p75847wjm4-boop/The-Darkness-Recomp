@@ -452,15 +452,29 @@ DeveloperDarknessResult spawnDeveloperObject(PPCContext& ctx, uint8_t* base,
     put(matrix + 56, f(matrix + 56) + 4);
     for (size_t i = 0; i < name.size(); ++i) PPC_STORE_U8(uint32_t(text + i), uint8_t(name[i]));
     PPC_STORE_U8(uint32_t(text + name.size()), 0);
+    // 8244A998 loads an uncached template through the world resource manager
+    // (server+432), which refuses additions while bit 0 of +24 is set after
+    // world loading. Retail dynamic spawning (822A6410, 822B19C8) lifts it for
+    // the call; do the same and restore the original flags.
+    const auto resources = PPC_LOAD_U32(player.server + 432);
+    if (!object(base, resources, 28, true) || PPC_LOAD_U32(resources) != 0x82070780)
+        return {false, "Spawning is unavailable here."};
+    const auto resourceFlags = PPC_LOAD_U32(resources + 24);
+    struct RestoreResources {
+        uint8_t* base;
+        uint32_t resources, flags;
+        ~RestoreResources() { PPC_STORE_U32(resources + 24, flags); }
+    } restoreResources{base, resources, resourceFlags};
+    PPC_STORE_U32(resources + 24, resourceFlags & ~1u);
     auto call = frame;
     call.r3.u64 = player.server; call.r4.u64 = text; call.r5.u64 = matrix;
     call.r6.s64 = int16_t(PPC_LOAD_U16(player.actor + 368));
     call.r7.u64 = 0; call.r8.u64 = 0; call.r9.s64 = -1; call.r10.u64 = 0;
     PPCSafeIndirect(call, base, create);
     const auto id = call.r3.s32;
-    if (id <= 0) return {false, "Could not spawn " + label + " here. It may not be loaded in this level."};
+    if (id <= 0) return {false, "Could not spawn " + label + ". The game has no template with that name here."};
     std::fprintf(stderr, "[Spawn] %s -> object %d\n", label.c_str(), id);
-    return {true, "Spawned " + label + "."};
+    return {true, "Spawned " + label + ". If it is invisible, its model is not loaded in this level."};
 }
 
 DeveloperDarknessResult applyDeveloperDarkness(PPCContext& ctx, uint8_t* base,
