@@ -6,6 +6,7 @@
 #include "developer_player_lookup.h"
 #include "developer_probe.h"
 #include "developer_esp.h"
+#include "developer_skeleton.h"
 #include "ppc_recomp_shared.h"
 #include <algorithm>
 #include <array>
@@ -242,6 +243,7 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         return canLoad;
     }
     const auto player = updateDeveloperPlayer(call, base, client, speed, invincible, enabled, noclip, infiniteAmmo);
+    setSkeletonCapture(enabled && esp);
     if (enabled && (esp || aimbot))
         collectDeveloperEsp(call, base, client, resolveDeveloperPlayer(call, base, client), esp, aimbot);
     else clearDeveloperEsp();

@@ -1,5 +1,6 @@
 #include "developer_probe.h"
 #include "developer_player_lookup.h"
+#include "developer_skeleton.h"
 #include "runtime.h"
 #include "ppc_recomp_shared.h"
 #include <atomic>
@@ -81,7 +82,19 @@ void dumpDeveloperProbe(PPCContext& ctx, uint8_t* base, uint32_t client) {
         const float dx = f32(base, object + 64) - px, dy = f32(base, object + 68) - py;
         auto call = ctx; call.r3.u64 = client; call.r4.u64 = id;
         sub_8249D618(call, base);
-        if (call.r3.u32 && dx * dx + dy * dy < best) { best = dx * dx + dy * dy; nearest = call.r3.u32; }
+        CapturedSkeleton animated;
+        if (call.r3.u32 && capturedSkeleton(call.r3.u32, animated) && dx * dx + dy * dy < best) {
+            best = dx * dx + dy * dy; nearest = call.r3.u32;
+        }
+    }
+    {
+        uint32_t keys[16];
+        const auto keyCount = capturedCharacters(keys, 16);
+        std::fprintf(stderr, "[Probe %u] captured skeletons=%u:", dumpCount, keyCount);
+        for (unsigned i = 0; i < keyCount; ++i)
+            std::fprintf(stderr, " %08X(vt %08X)", keys[i], readable(base, keys[i], 4) ? PPC_LOAD_U32(keys[i]) : 0);
+        std::fputc('\n', stderr);
+        if (!nearest && keyCount) nearest = keys[0];
     }
     if (nearest) {
         const float nx = f32(base, nearest + 64), ny = f32(base, nearest + 68), nz = f32(base, nearest + 72);
@@ -136,16 +149,26 @@ void dumpDeveloperProbe(PPCContext& ctx, uint8_t* base, uint32_t client) {
                     search(pointer, depth == 0 ? 8192 : 4096, depth + 1, path + "+" + std::to_string(offset) + ">");
             }
         };
-        // CXR_SkeletonInstance at state+840 (created in 8212B238): +32 and +36
-        // are 64-byte bone matrix arrays, +60 the bone count.
-        const auto skeletonState = PPC_LOAD_U32(nearest + 396);
-        const auto instance = readable(base, skeletonState, 848) ? PPC_LOAD_U32(skeletonState + 840) : 0;
-        std::fprintf(stderr, "[Probe %u] skeleton instance=%08X\n", dumpCount, instance);
-        if (readable(base, instance, 128)) {
-            block(base, "skelinst", instance, 128);
-            const uint32_t bones = PPC_LOAD_U16(instance + 60);
+        // Skeleton captured from the original animation path this frame.
+        CapturedSkeleton skeleton;
+        std::fprintf(stderr, "[Probe %u] skeleton captured=%u\n", dumpCount, unsigned(capturedSkeleton(nearest, skeleton)));
+        if (skeleton.skeleton && readable(base, skeleton.skeleton, 64) && readable(base, skeleton.instance, 128)) {
+            block(base, "skelobj", skeleton.skeleton, 64);
+            block(base, "skelinst", skeleton.instance, 128);
+            const auto nodes = PPC_LOAD_U32(skeleton.skeleton + 12);
+            const uint32_t nodeCount = readable(base, nodes, 16) ? PPC_LOAD_U32(nodes) : 0;
+            std::fprintf(stderr, "[Probe %u] skeleton nodes=%08X count=%u\n", dumpCount, nodes, nodeCount);
+            if (nodeCount <= 256 && readable(base, nodes + 16, nodeCount * 48))
+                for (uint32_t i = 0; i < nodeCount; ++i) {
+                    const auto at = nodes + 16 + i * 48;
+                    std::fprintf(stderr, "[Probe %u] node %u: %g %g %g %g | %08X %08X %08X %08X | %08X %08X %08X %08X\n",
+                        dumpCount, i, f32(base, at), f32(base, at + 4), f32(base, at + 8), f32(base, at + 12),
+                        PPC_LOAD_U32(at + 16), PPC_LOAD_U32(at + 20), PPC_LOAD_U32(at + 24), PPC_LOAD_U32(at + 28),
+                        PPC_LOAD_U32(at + 32), PPC_LOAD_U32(at + 36), PPC_LOAD_U32(at + 40), PPC_LOAD_U32(at + 44));
+                }
+            const uint32_t bones = PPC_LOAD_U16(skeleton.instance + 60);
             for (const uint32_t field : {32u, 36u}) {
-                const auto array = PPC_LOAD_U32(instance + field);
+                const auto array = PPC_LOAD_U32(skeleton.instance + field);
                 if (bones > 256 || !readable(base, array, bones * 64)) continue;
                 for (uint32_t bone = 0; bone < bones; ++bone) {
                     const auto at = array + bone * 64;
