@@ -129,6 +129,10 @@ void EspOverlay::paint(HDC dc, int width, int height) {
     SetBkMode(dc, TRANSPARENT);
     SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
     for (const auto& target : view.targets) {
+        // Starbreeze world units: 32 per meter (the 62-unit body is ~1.9 m).
+        const float dx = target.x - view.eye[0], dy = target.y - view.eye[1], dz = target.z - view.eye[2];
+        const float meters = std::sqrt(dx * dx + dy * dy + dz * dz) / 32;
+        if (style.maxDistance < EspStyle::kAllDistances && meters > style.maxDistance) continue;
         const auto feet = project(view, target.x, target.y, target.z, width, height);
         const auto head = project(view, target.x, target.y, target.z + kBodyHeight, width, height);
         if (!feet.ok || !head.ok) continue;
@@ -153,8 +157,11 @@ void EspOverlay::paint(HDC dc, int width, int height) {
         }
         SelectObject(dc, pen_);
         wchar_t label[32];
-        const int length = swprintf_s(label, L"%d", target.health);
-        if (length > 0 && style.health && (view.box || view.skeleton))
+        int length = 0;
+        if (style.health) length = swprintf_s(label, L"%d  ", target.health);
+        if (style.distance && length >= 0)
+            length += swprintf_s(label + length, std::size(label) - length, L"%.0fm", meters);
+        if (length > 0 && (view.box || view.skeleton))
             TextOutW(dc, left, int(head.y) - 14, label, length);
     }
     SelectObject(dc, oldBrush);

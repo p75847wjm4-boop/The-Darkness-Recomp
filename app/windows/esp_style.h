@@ -14,6 +14,10 @@ struct EspStyle {
     BYTE opacity = 255;
     bool fovCircle = false;
     bool health = true;
+    bool distance = true;
+    // Meters; kAllDistances shows every target.
+    static constexpr int kAllDistances = 200;
+    int maxDistance = kAllDistances;
     float aimFov = 25;
 };
 
