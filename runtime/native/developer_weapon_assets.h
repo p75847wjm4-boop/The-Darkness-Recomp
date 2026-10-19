@@ -17,8 +17,6 @@ struct CachedWeaponFile {
     uint64_t size = 0;
     // Sorted, disjoint cached intervals. Adjacent intervals are coalesced.
     std::vector<std::pair<uint32_t, uint32_t>> ranges;
-    // Donor files read their never-cached holes as zeros instead of failing.
-    bool zeroHoles = false;
     bool covers(uint64_t offset, uint32_t length) const noexcept;
 };
 using DeveloperWeaponAssets = std::map<std::string, std::shared_ptr<const CachedWeaponFile>>;

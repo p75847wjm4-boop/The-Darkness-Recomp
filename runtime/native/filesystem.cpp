@@ -314,8 +314,7 @@ PPC_FUNC(__imp__NtReadFile) {
         if (int32_t(status) >= 0 && position.QuadPart < 0) status = invalidParameter;
         if (int32_t(status) >= 0 && uint64_t(position.QuadPart) < size) {
             const auto count = uint32_t((std::min)(uint64_t(ctx.r9.u32), size - uint64_t(position.QuadPart)));
-            if (!file->cachedWeaponFile->zeroHoles &&
-                !file->cachedWeaponFile->covers(uint64_t(position.QuadPart), count)) {
+            if (!file->cachedWeaponFile->covers(uint64_t(position.QuadPart), count)) {
                 status = 0xc000003e; // STATUS_DATA_ERROR: requested bytes were not cached.
                 std::fprintf(stderr, "[Weapons] Uncached read '%ls' offset=%llu bytes=%u.\n",
                     file->path.filename().c_str(), uint64_t(position.QuadPart), count);
