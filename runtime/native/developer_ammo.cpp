@@ -115,12 +115,6 @@ PPC_FUNC(sub_822C26C8) {
     const auto weapon = ctx.r3.u32;
     __imp__sub_822C26C8(ctx, base);
     if (mine && rapidFire.load(std::memory_order_relaxed)) PPC_STORE_U32(weapon + 556, 0);
-    if (inventory && logged.load(std::memory_order_relaxed) <= 40) {
-        const auto savedMath = _mm_getcsr();
-        std::fprintf(stderr, "[WeaponMods] after weapon=%08X next=%u result=%u\n", weapon,
-                     PPC_LOAD_U32(weapon + 556), ctx.r3.u32);
-        _mm_setcsr(savedMath);
-    }
 }
 
 // Original 82332428(ammo, rounds): take = min(loaded, rounds), draw take from the
@@ -174,3 +168,23 @@ PPC_FUNC(sub_82325CA8) {
     }
     __imp__sub_82325CA8(ctx, base);
 }
+
+// Trigger checks refuse to fire while next-fire tick +556 minus now is
+// positive: 822DD880 (guns), 822C1DE0 (shared weapon base), 82325988 and
+// 8232D030. Retail restores +556 between shots after 822C26C8 sets it, so
+// clear it on the player's own weapon right before each check.
+namespace {
+void clearRefire(PPCContext& ctx, uint8_t* base) {
+    const auto inventory = modInventory.load(std::memory_order_acquire);
+    if (inventory && rapidFire.load(std::memory_order_relaxed) &&
+        activeBase.load(std::memory_order_acquire) == base && inventoryItem(base, inventory, ctx.r3.u32, 560))
+        PPC_STORE_U32(ctx.r3.u32 + 556, 0);
+}
+}
+#define DARK_REFIRE_CHECK(address) \
+    extern "C" PPC_FUNC(__imp__sub_##address); \
+    PPC_FUNC(sub_##address) { clearRefire(ctx, base); __imp__sub_##address(ctx, base); }
+DARK_REFIRE_CHECK(822DD880)
+DARK_REFIRE_CHECK(822C1DE0)
+DARK_REFIRE_CHECK(82325988)
+DARK_REFIRE_CHECK(8232D030)
