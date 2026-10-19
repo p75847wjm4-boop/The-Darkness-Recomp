@@ -218,8 +218,8 @@ Press **F7** to open or close the cheats overlay in the top-left corner of the
 game window. **Infinite ammo** stops the player's guns from using rounds, so the
 magazine never runs out and you never need to reload. NPC ammo is unchanged.
 If the magazine was already empty when you turned it on, reload once.
-**ESP** draws a red box and health number over every living, spawned NPC, even
-through walls. **Aimbot** turns your view toward the living NPC closest to your crosshair
+**ESP** draws a red box, a white skeleton and a health number over every living
+NPC the game is currently animating, even through walls. **Aimbot** turns your view toward the head of the living NPC closest to your crosshair
 (within about 25 degrees) while you hold **V** or **Mouse 4**. Both include
 friendly and neutral characters, and the aimbot does not check line of sight.
 **Weapons** lists the campaign guns. Select one and press **Give** (or

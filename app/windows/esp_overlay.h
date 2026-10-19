@@ -26,7 +26,7 @@ private:
     HDC buffer_{};
     HBITMAP bitmap_{};
     HGDIOBJ previousBitmap_{};
-    HPEN pen_{};
+    HPEN pen_{}, bonePen_{};
     int bufferWidth_ = 0, bufferHeight_ = 0;
     ULONGLONG lastPaint_ = 0;
     bool shown_ = false;

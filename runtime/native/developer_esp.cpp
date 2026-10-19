@@ -1,5 +1,6 @@
 #include "developer_esp.h"
 #include "developer_player_lookup.h"
+#include "developer_skeleton.h"
 #include "runtime.h"
 #include "ppc_recomp_shared.h"
 #include <algorithm>
@@ -116,6 +117,62 @@ bool clientView(PPCContext& ctx, uint8_t* base, uint32_t client, EspSnapshot& vi
     return true;
 }
 std::atomic<uint32_t> lockedTarget{0};
+
+// CXR_Skeleton (+12 -> count, nodes at +16, 48 bytes each): rest-pose center
+// at +0, parent index (int16, FFFF = none) at +28. A CXR_SkeletonInstance
+// keeps this frame's world bone matrices at +36 (64-byte rows, count +60);
+// a joint is its rest center transformed by its bone matrix.
+struct Pose {
+    float root[3]{};
+    uint32_t skeleton = 0, instance = 0;
+};
+
+bool joint(uint8_t* base, uint32_t nodes, uint32_t matrices, uint32_t index, float (&out)[3]) {
+    const auto node = nodes + 16 + index * 48, m = matrices + index * 64;
+    const float c[3]{f32(base, node), f32(base, node + 4), f32(base, node + 8)};
+    for (int k = 0; k < 3; ++k) {
+        out[k] = c[0] * f32(base, m + k * 4) + c[1] * f32(base, m + 16 + k * 4) +
+                 c[2] * f32(base, m + 32 + k * 4) + f32(base, m + 48 + k * 4);
+        if (!std::isfinite(out[k])) return false;
+    }
+    return true;
+}
+
+void attachSkeleton(uint8_t* base, const Pose& pose, EspTarget& target) {
+    const auto nodes = PPC_LOAD_U32(pose.skeleton + 12);
+    if (!committed(base, nodes, 16)) return;
+    const auto count = (std::min)(PPC_LOAD_U32(nodes), uint32_t(PPC_LOAD_U16(pose.instance + 60)));
+    const auto matrices = PPC_LOAD_U32(pose.instance + 36);
+    if (!count || count > 256 || !committed(base, nodes + 16, count * 48) || !committed(base, matrices, count * 64)) return;
+    for (uint32_t i = 1; i < count; ++i) {
+        const auto parent = PPC_LOAD_U16(nodes + 16 + i * 48 + 28);
+        if (parent >= count) continue;
+        float a[3], b[3];
+        if (!joint(base, nodes, matrices, i, a) || !joint(base, nodes, matrices, parent, b)) continue;
+        const float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+        const float length = dx * dx + dy * dy + dz * dz;
+        // Skip unevaluated bones (zero matrices) and finger-sized links.
+        if (length < 4 || length > 40 * 40 || std::abs(a[0] - target.x) > 120 || std::abs(a[1] - target.y) > 120) continue;
+        target.bones.push_back({a[0], a[1], a[2], b[0], b[1], b[2]});
+        if (!target.hasHead || a[2] > target.head[2]) {
+            target.hasHead = true;
+            target.head[0] = a[0]; target.head[1] = a[1]; target.head[2] = a[2];
+        }
+    }
+}
+
+std::vector<Pose> currentPoses(uint8_t* base) {
+    std::vector<Pose> poses;
+    for (const auto& captured : capturedSkeletons()) {
+        if (!committed(base, captured.instance, 64) || !committed(base, captured.skeleton, 16)) continue;
+        const auto matrices = PPC_LOAD_U32(captured.instance + 36);
+        if (!committed(base, matrices, 64)) continue;
+        Pose pose{{f32(base, matrices + 48), f32(base, matrices + 52), f32(base, matrices + 56)},
+                  captured.skeleton, captured.instance};
+        poses.push_back(pose);
+    }
+    return poses;
+}
 }
 
 void rememberGameplayFov(float degrees) noexcept {
@@ -130,6 +187,7 @@ void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
     EspSnapshot next;
     if ((esp || aimbot) && player.actor && player.server && clientView(ctx, base, client, next)) {
         next.esp = esp;
+        const auto poses = esp ? currentPoses(base) : std::vector<Pose>{};
         const auto objects = PPC_LOAD_U32(player.server + 1460);
         if (committed(base, objects, 28)) {
             const auto count = PPC_LOAD_U32(objects + 4), items = PPC_LOAD_U32(objects + 24);
@@ -142,7 +200,20 @@ void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
                     if (!health(base, object, hp) || hp <= 0) continue;
                     float rows[4][3];
                     if (!matrix(base, clientObject(ctx, base, client, id), rows)) continue;
-                    next.targets.push_back({rows[3][0], rows[3][1], rows[3][2], hp, id});
+                    EspTarget target{rows[3][0], rows[3][1], rows[3][2], hp, id};
+                    // With ESP on, show only characters the game animated this
+                    // frame: their skeleton root sits exactly at the origin.
+                    if (esp) {
+                        const Pose* pose = nullptr;
+                        for (const auto& candidate : poses) {
+                            const float dx = candidate.root[0] - target.x, dy = candidate.root[1] - target.y,
+                                        dz = candidate.root[2] - target.z;
+                            if (dx * dx + dy * dy + dz * dz < 4) { pose = &candidate; break; }
+                        }
+                        if (!pose) continue;
+                        attachSkeleton(base, *pose, target);
+                    }
+                    next.targets.push_back(std::move(target));
                 }
             }
         }
@@ -177,7 +248,10 @@ bool developerAimCorrection(PPCContext& ctx, uint8_t* base, uint32_t client,
     if (targets.empty() || !clientView(ctx, base, client, view)) return false;
     const float* f = view.forward;
     const auto direction = [&](const EspTarget& target, float& x, float& y, float& z) {
-        x = target.x - view.eye[0]; y = target.y - view.eye[1]; z = target.z + kAimHeight - view.eye[2];
+        const float aimZ = target.hasHead ? target.head[2] - 2 : target.z + kAimHeight;
+        x = (target.hasHead ? target.head[0] : target.x) - view.eye[0];
+        y = (target.hasHead ? target.head[1] : target.y) - view.eye[1];
+        z = aimZ - view.eye[2];
         const float length = std::sqrt(x * x + y * y + z * z);
         if (length < 1 || length > kAimRange) return 10.0f;
         return std::acos(std::clamp((x * f[0] + y * f[1] + z * f[2]) / length, -1.0f, 1.0f));

@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -11,6 +12,10 @@ struct EspTarget {
     float x = 0, y = 0, z = 0; // Feet, guest world units (Z up), as rendered.
     int health = 0;
     uint32_t id = 0;
+    // World-space joint-to-parent segments from this frame's animated skeleton.
+    std::vector<std::array<float, 6>> bones;
+    bool hasHead = false;
+    float head[3]{};
 };
 // The player's view, approximated from the client (rendered) player matrix
 // (rows: forward with pitch, left, up, position) plus the last camera FOV.

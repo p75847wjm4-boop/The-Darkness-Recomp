@@ -7,7 +7,8 @@ using namespace DarkRecomp::Native;
 
 namespace {
 constexpr wchar_t kWindowClass[] = L"DarkRecompEspOverlay";
-constexpr COLORREF kKey = RGB(0, 0, 0), kBox = RGB(255, 40, 40), kText = RGB(255, 230, 230);
+constexpr COLORREF kKey = RGB(0, 0, 0), kBox = RGB(255, 40, 40), kText = RGB(255, 230, 230),
+                   kBone = RGB(255, 255, 255);
 constexpr float kBodyHeight = 62;
 
 struct Point { float x, y; bool ok; };
@@ -38,7 +39,8 @@ void EspOverlay::releaseBuffer() {
 void EspOverlay::close() {
     releaseBuffer();
     if (pen_) DeleteObject(pen_);
-    pen_ = nullptr;
+    if (bonePen_) DeleteObject(bonePen_);
+    pen_ = bonePen_ = nullptr;
     if (window_ && IsWindow(window_)) DestroyWindow(window_);
     window_ = nullptr;
     shown_ = false;
@@ -95,6 +97,7 @@ void EspOverlay::paint(HDC dc, int width, int height) {
     FillRect(dc, &all, HBRUSH(GetStockObject(BLACK_BRUSH)));
     const auto view = developerEspSnapshot();
     if (!pen_) pen_ = CreatePen(PS_SOLID, 2, kBox);
+    if (!bonePen_) bonePen_ = CreatePen(PS_SOLID, 2, kBone);
     const auto oldPen = SelectObject(dc, pen_);
     const auto oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
     SetBkMode(dc, TRANSPARENT);
@@ -109,6 +112,15 @@ void EspOverlay::paint(HDC dc, int width, int height) {
         const float half = tall * 0.22f;
         const int left = int(feet.x - half), right = int(feet.x + half);
         Rectangle(dc, left, int(head.y), right, int(feet.y));
+        SelectObject(dc, bonePen_);
+        for (const auto& bone : target.bones) {
+            const auto from = project(view, bone[0], bone[1], bone[2], width, height);
+            const auto to = project(view, bone[3], bone[4], bone[5], width, height);
+            if (!from.ok || !to.ok) continue;
+            MoveToEx(dc, int(from.x), int(from.y), nullptr);
+            LineTo(dc, int(to.x), int(to.y));
+        }
+        SelectObject(dc, pen_);
         wchar_t label[32];
         const int length = swprintf_s(label, L"%d", target.health);
         if (length > 0) TextOutW(dc, left, int(head.y) - 14, label, length);
