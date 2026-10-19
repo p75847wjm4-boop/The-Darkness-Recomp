@@ -4,6 +4,7 @@
 #include "developer_invincibility.h"
 #include "developer_darkness.h"
 #include "developer_player_lookup.h"
+#include "developer_probe.h"
 #include "ppc_recomp_shared.h"
 #include <algorithm>
 #include <array>
@@ -19,6 +20,7 @@ std::mutex stateMutex;
 DeveloperSnapshot state;
 std::optional<std::string> pendingMission;
 std::optional<std::string> pendingWeapon;
+bool pendingProbe = false;
 bool playerToolsEnabled = false;
 bool pendingDarknessUnlock = false;
 bool pendingDarknessLevel = false;
@@ -27,7 +29,7 @@ bool panelVisible = false;
 std::atomic<bool> needsUpdate{false};
 
 void refreshWorkLocked() {
-    needsUpdate.store(panelVisible || pendingMission.has_value() || pendingWeapon.has_value() || playerToolsEnabled ||
+    needsUpdate.store(panelVisible || pendingMission.has_value() || pendingWeapon.has_value() || pendingProbe || playerToolsEnabled ||
         pendingDarknessUnlock || pendingDarknessLevel, std::memory_order_release);
 }
 
@@ -148,6 +150,12 @@ bool requestDeveloperWeapon(std::string_view id) {
     return true;
 }
 
+void requestDeveloperProbe() {
+    std::lock_guard lock(stateMutex);
+    pendingProbe = true;
+    requested("Probe dump queued.");
+}
+
 void requestDeveloperUnlockDarkness() {
     std::lock_guard lock(stateMutex);
     pendingDarknessUnlock = true;
@@ -166,7 +174,7 @@ void resetDeveloperTools() {
     pendingMission.reset();
     pendingWeapon.reset();
     playerToolsEnabled = false;
-    pendingDarknessUnlock = pendingDarknessLevel = false;
+    pendingDarknessUnlock = pendingDarknessLevel = pendingProbe = false;
     ++requestRevision;
     resetDeveloperPlayer();
     refreshWorkLocked();
@@ -175,7 +183,7 @@ void resetDeveloperTools() {
 bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool missionReady) {
     std::optional<std::string> mission, weapon;
     float speed;
-    bool invincible, noclip, infiniteAmmo, enabled, unlockDarkness, maxDarkness;
+    bool invincible, noclip, infiniteAmmo, enabled, unlockDarkness, maxDarkness, probe;
     uint64_t request;
     {
         std::lock_guard lock(stateMutex);
@@ -190,6 +198,7 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         enabled = playerToolsEnabled;
         unlockDarkness = std::exchange(pendingDarknessUnlock, false);
         maxDarkness = std::exchange(pendingDarknessLevel, false);
+        probe = std::exchange(pendingProbe, false);
         request = requestRevision;
     }
     const bool canLoad = missionReady && canLoadDeveloperMission(base, client);
@@ -212,7 +221,10 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         return canLoad;
     }
     const auto player = updateDeveloperPlayer(call, base, client, speed, invincible, enabled, noclip, infiniteAmmo);
-    if (weapon) {
+    if (probe) {
+        dumpDeveloperProbe(call, base, client);
+        publish(request, canLoad, player.hasActivePlayer, "Probe written to the runtime log.", false, true);
+    } else if (weapon) {
         const auto handles = resolveDeveloperPlayer(call, base, client);
         const auto* entry = weaponFor(*weapon);
         const auto granted = grantDeveloperWeapon(call, base, handles, entry->id, entry->title);

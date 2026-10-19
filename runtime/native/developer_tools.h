@@ -43,6 +43,7 @@ void requestDeveloperInvincibility(bool enabled);
 void requestDeveloperNoclip(bool enabled);
 void requestDeveloperInfiniteAmmo(bool enabled);
 bool requestDeveloperWeapon(std::string_view id);
+void requestDeveloperProbe();
 void requestDeveloperUnlockDarkness();
 void requestDeveloperMaxDarkness();
 void resetDeveloperTools();

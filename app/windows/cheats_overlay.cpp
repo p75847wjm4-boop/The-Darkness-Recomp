@@ -12,7 +12,7 @@ using namespace DarkRecomp::Native;
 namespace {
 constexpr wchar_t kWindowClass[] = L"DarkRecompCheatsOverlay";
 constexpr UINT_PTR kRefreshTimer = 1;
-constexpr int kInfiniteAmmo = 2001, kWeapons = 2002, kGive = 2003;
+constexpr int kInfiniteAmmo = 2001, kWeapons = 2002, kGive = 2003, kProbe = 2004;
 constexpr int kWidth = 280, kHeight = 372, kMargin = 16;
 constexpr BYTE kOpacity = 225;
 constexpr COLORREF kBackground = RGB(12, 12, 14), kText = RGB(230, 230, 230), kDim = RGB(150, 150, 150);
@@ -115,6 +115,7 @@ void CheatsOverlay::createControls() {
     }
     SendMessageW(weapons_, LB_SETCURSEL, 0, 0);
     give_ = control(window_, L"BUTTON", L"GIVE", BS_PUSHBUTTON | WS_TABSTOP, 14, 280, 90, 26, kGive);
+    control(window_, L"BUTTON", L"DUMP", BS_PUSHBUTTON | WS_TABSTOP, 176, 280, 90, 26, kProbe);
     status_ = control(window_, L"STATIC", L"", SS_LEFT, 14, 312, 252, 34);
     control(window_, L"STATIC", L"F7 OR ESC CLOSES. GIVEN WEAPONS MAY BE SAVED.", 0, 14, 348, 252, 18);
 }
@@ -188,6 +189,7 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
         if (LOWORD(key) == kInfiniteAmmo && HIWORD(key) == BN_CLICKED) selectInfiniteAmmo();
         else if ((LOWORD(key) == kGive && HIWORD(key) == BN_CLICKED) ||
                  (LOWORD(key) == kWeapons && HIWORD(key) == LBN_DBLCLK)) giveWeapon();
+        else if (LOWORD(key) == kProbe && HIWORD(key) == BN_CLICKED) { requestDeveloperProbe(); refresh(); }
         else if (LOWORD(key) == IDCANCEL) close();
         return 0;
     }

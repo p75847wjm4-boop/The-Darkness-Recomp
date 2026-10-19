@@ -1,4 +1,5 @@
 #include "stall_profiler.h"
+#include "developer_probe.h"
 #include "fov_settings.h"
 #include "runtime.h"
 #include "ppc_recomp_shared.h"
@@ -188,7 +189,10 @@ PPC_FUNC(sub_8249A030) {
     DarkRecomp::Native::StallProfiler::Scope stallProfile(DarkRecomp::Native::StallProfiler::Section::Guest, __func__, 0x8249A030u, uint32_t(ctx.lr));
     const float configured = fieldOfViewSetting();
     if (configured == 0 && !probeEnabled()) {
+        const auto client = ctx.r3.u32, viewport = ctx.r4.u32;
         __imp__sub_8249A030(ctx, base);
+        if (validSpan(client, 4) && (readWord(base, client) == kModClientVtable || readWord(base, client) == kP6ClientVtable))
+            rememberGameplayViewport(client, viewport);
         return;
     }
     CameraQuery query{base, ctx.r3.u32, ctx.r4.u32, uint32_t(ctx.lr), configured};
@@ -214,6 +218,7 @@ PPC_FUNC(sub_8249A030) {
     }
     const ScopedCameraQuery scope(query);
     __imp__sub_8249A030(ctx, base);
+    rememberGameplayViewport(query.client, query.viewport);
     reportQuery(query);
 }
 
