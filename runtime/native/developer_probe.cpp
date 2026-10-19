@@ -72,6 +72,36 @@ void dumpDeveloperProbe(PPCContext& ctx, uint8_t* base, uint32_t client) {
             dumpCount, id, object, PPC_LOAD_U32(object), PPC_LOAD_U16(object + 368), PPC_LOAD_U16(object + 370),
             PPC_LOAD_U32(object + 396), f32(base, object + 128), f32(base, object + 132), f32(base, object + 136));
     }
+    // Name research: text reachable from each server NPC, directly or through
+    // one pointer. Template names (ai_*) and designer names show up here.
+    const auto text = [&](uint32_t address, char* out, size_t size) {
+        if (!address || uint64_t(address) + size > PPC_MEMORY_SIZE || !readable(base, address & ~3u, size + 4))
+            return false;
+        size_t n = 0;
+        for (; n + 1 < size; ++n) {
+            const auto c = char(PPC_LOAD_U8(address + uint32_t(n)));
+            if (!c) break;
+            if (c < 32 || c > 126) return false;
+            out[n] = c;
+        }
+        out[n] = 0;
+        return n >= 4 && n + 1 < size;
+    };
+    unsigned npcs = 0;
+    for (uint32_t id = 1; id < count && npcs < 6; ++id) {
+        const auto object = PPC_LOAD_U32(items + id * 4);
+        if (!readable(base, object, 2048) || PPC_LOAD_U32(object) != 0x820626C8) continue;
+        ++npcs;
+        char found[64];
+        for (uint32_t offset = 4; offset < 2048; offset += 4) {
+            const auto value = PPC_LOAD_U32(object + offset);
+            if (text(value, found, sizeof(found)))
+                std::fprintf(stderr, "[Probe %u] name id=%u +%u \"%s\"\n", dumpCount, id, offset, found);
+            else if (readable(base, value, 64)) for (uint32_t inner = 0; inner < 64; inner += 4)
+                if (text(PPC_LOAD_U32(value + inner), found, sizeof(found)))
+                    std::fprintf(stderr, "[Probe %u] name id=%u +%u+%u \"%s\"\n", dumpCount, id, offset, inner, found);
+        }
+    }
     // Skeleton research: the nearest spawned NPC's client object, plus the
     // objects its first pointers reference (bone matrices live off-object).
     uint32_t nearest = 0; float best = 1e30f;
