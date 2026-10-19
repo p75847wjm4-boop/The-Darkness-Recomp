@@ -1,5 +1,4 @@
 #include "developer_weapon_assets.h"
-#include "developer_tools.h"
 #include "runtime.h"
 #include "objects.h"
 #include "ppc_recomp_shared.h"
@@ -854,10 +853,10 @@ std::vector<const DonorRecord*> completeDonors(std::vector<DonorRecord>& records
 
 std::shared_ptr<const CachedWeaponFile> extractDonor(PPCContext& ctx, uint8_t* base,
     const std::filesystem::path& gameDirectory, const std::string& name,
-    const std::vector<const DonorRecord*>& records, const Ranges* partial = nullptr) {
+    const std::vector<const DonorRecord*>& records) {
     const auto size = records.front()->size;
     const auto path = gameDirectory.parent_path() / L"build_native/run/developer-donors" /
-        (partial ? L"level" : L"") / std::filesystem::path(name);
+        std::filesystem::path(name);
     std::error_code error;
     if (!std::filesystem::exists(path, error) || std::filesystem::file_size(path, error) != size) {
         File file{name, size, {}};
@@ -879,68 +878,16 @@ std::shared_ptr<const CachedWeaponFile> extractDonor(PPCContext& ctx, uint8_t* b
                 DeveloperWeaponAssetDetail::mergeFile(file, File{name, size, {{block.offset,
                     Bytes(payload.begin() + block.stream, payload.begin() + block.stream + block.length)}}});
         }
-        if (!partial && (file.segments.size() != 1 || file.segments.front().offset ||
-            file.segments.front().bytes.size() != size))
+        if (file.segments.size() != 1 || file.segments.front().offset ||
+            file.segments.front().bytes.size() != size)
             invalid("Developer donor archives do not contain the whole file.");
         std::filesystem::remove(path, error);
         store(path, file);
     }
     auto prepared = std::make_shared<CachedWeaponFile>();
     prepared->path = path; prepared->size = size;
-    if (partial) prepared->ranges = *partial;
-    else prepared->ranges.emplace_back(0, size);
+    prepared->ranges.emplace_back(0, size);
     return prepared;
-}
-
-bool startsWithNoCase(std::string_view text, std::string_view prefix) {
-    if (text.size() < prefix.size()) return false;
-    for (size_t i = 0; i < prefix.size(); ++i) {
-        auto a = text[i], b = prefix[i];
-        if (a >= 'A' && a <= 'Z') a += 'a' - 'A';
-        if (b >= 'A' && b <= 'Z') b += 'a' - 'A';
-        if (a != b) return false;
-    }
-    return true;
-}
-// A spawned character can name a numbered variant the level never loads,
-// such as Mob_Body_01 where Chinatown has only Mob_Body_02. Serve a sibling
-// variant from the current level's own archives: the loader then parses it
-// exactly as it did for the level, so its recorded reads cover every access.
-std::shared_ptr<const CachedWeaponFile> levelVariant(PPCContext& ctx, uint8_t* base,
-    const std::filesystem::path& gameDirectory, const std::string& name, std::string& source) {
-    const auto underscore = name.rfind('_'), dot = name.rfind('.');
-    if (underscore == std::string::npos || dot == std::string::npos || dot <= underscore + 1 ||
-        !std::all_of(name.begin() + underscore + 1, name.begin() + dot,
-                     [](char c) { return c >= '0' && c <= '9'; })) return {};
-    const auto level = developerSnapshot().level;
-    if (level.empty()) return {};
-    const auto stem = std::string_view(name).substr(0, underscore + 1);
-    const auto extension = std::string_view(name).substr(dot);
-    const std::vector<DonorRecord>* best = nullptr;
-    Ranges bestRanges;
-    std::vector<const DonorRecord*> bestRecords;
-    for (const auto& [candidate, records] : donorIndex) {
-        if (candidate == name || !candidate.starts_with(stem) || !candidate.ends_with(extension)) continue;
-        const auto digits = std::string_view(candidate).substr(stem.size(),
-            candidate.size() - stem.size() - extension.size());
-        if (digits.empty() || !std::all_of(digits.begin(), digits.end(),
-                                           [](char c) { return c >= '0' && c <= '9'; })) continue;
-        Ranges ranges;
-        std::vector<const DonorRecord*> chosen;
-        for (const auto& record : records) {
-            if (!startsWithNoCase(record.archive.filename().string(), level + "_") ||
-                (!chosen.empty() && record.size != chosen.front()->size)) continue;
-            chosen.push_back(&record);
-            for (const auto [first, count] : record.ranges) addRange(ranges, first, count);
-        }
-        if (chosen.empty() || ranges.empty() || ranges.front().first) continue;
-        if (!best || coverage(ranges) > coverage(bestRanges)) {
-            best = &records; bestRanges = std::move(ranges); bestRecords = std::move(chosen);
-            source = candidate;
-        }
-    }
-    if (!best) return {};
-    return extractDonor(ctx, base, gameDirectory, source, bestRecords, &bestRanges);
 }
 }
 
@@ -959,16 +906,11 @@ std::shared_ptr<const CachedWeaponFile> developerDonorFile(PPCContext& ctx, uint
     try {
         if (!donorIndexed) buildDonorIndex(gameDirectory);
         const auto records = donorIndex.find(name);
-        const auto chosen = records == donorIndex.end() ? std::vector<const DonorRecord*>{}
-                                                        : completeDonors(records->second);
+        if (records == donorIndex.end()) return {};
+        const auto chosen = completeDonors(records->second);
         if (chosen.empty()) {
-            std::string source;
-            prepared = levelVariant(ctx, base, gameDirectory, name, source);
-            if (prepared)
-                std::fprintf(stderr, "[Donor] Using level's '%s' for '%s'.\n", source.c_str(), name.c_str());
-            else
-                std::fprintf(stderr, "[Donor] No archive set contains all of '%s'.\n", name.c_str());
-            return prepared;
+            std::fprintf(stderr, "[Donor] No archive set contains all of '%s'.\n", name.c_str());
+            return {};
         }
         prepared = extractDonor(ctx, base, gameDirectory, name, chosen);
         std::fprintf(stderr, "[Donor] Loaded '%s' from %zu archive(s), first %ls.\n", name.c_str(),
