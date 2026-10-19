@@ -136,6 +136,27 @@ void dumpDeveloperProbe(PPCContext& ctx, uint8_t* base, uint32_t client) {
                     search(pointer, depth == 0 ? 8192 : 4096, depth + 1, path + "+" + std::to_string(offset) + ">");
             }
         };
+        // CXR_SkeletonInstance at state+840 (created in 8212B238): +32 and +36
+        // are 64-byte bone matrix arrays, +60 the bone count.
+        const auto skeletonState = PPC_LOAD_U32(nearest + 396);
+        const auto instance = readable(base, skeletonState, 848) ? PPC_LOAD_U32(skeletonState + 840) : 0;
+        std::fprintf(stderr, "[Probe %u] skeleton instance=%08X\n", dumpCount, instance);
+        if (readable(base, instance, 128)) {
+            block(base, "skelinst", instance, 128);
+            const uint32_t bones = PPC_LOAD_U16(instance + 60);
+            for (const uint32_t field : {32u, 36u}) {
+                const auto array = PPC_LOAD_U32(instance + field);
+                if (bones > 256 || !readable(base, array, bones * 64)) continue;
+                for (uint32_t bone = 0; bone < bones; ++bone) {
+                    const auto at = array + bone * 64;
+                    std::fprintf(stderr, "[Probe %u] skel%u %u: x=%g %g %g y=%g %g %g z=%g %g %g t=%g %g %g\n",
+                        dumpCount, field, bone, f32(base, at), f32(base, at + 4), f32(base, at + 8),
+                        f32(base, at + 16), f32(base, at + 20), f32(base, at + 24),
+                        f32(base, at + 32), f32(base, at + 36), f32(base, at + 40),
+                        f32(base, at + 48) - nx, f32(base, at + 52) - ny, f32(base, at + 56) - nz);
+                }
+            }
+        }
         search(nearest, 2048, 0, "npc");
         const auto state = PPC_LOAD_U32(nearest + 396);
         if (state) search(state, 12288, 0, "state");
