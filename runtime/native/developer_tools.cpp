@@ -202,7 +202,7 @@ void resetDeveloperTools() {
 bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool missionReady) {
     std::optional<std::string> mission, weapon;
     float speed;
-    bool invincible, noclip, infiniteAmmo, esp, aimbot, enabled, unlockDarkness, maxDarkness, probe;
+    bool invincible, noclip, infiniteAmmo, esp, aimbot, enabled, unlockDarkness, maxDarkness, probe, overlay;
     uint64_t request;
     {
         std::lock_guard lock(stateMutex);
@@ -220,6 +220,7 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         unlockDarkness = std::exchange(pendingDarknessUnlock, false);
         maxDarkness = std::exchange(pendingDarknessLevel, false);
         probe = std::exchange(pendingProbe, false);
+        overlay = panelVisible;
         request = requestRevision;
     }
     const bool canLoad = missionReady && canLoadDeveloperMission(base, client);
@@ -243,7 +244,7 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         return canLoad;
     }
     const auto player = updateDeveloperPlayer(call, base, client, speed, invincible, enabled, noclip, infiniteAmmo);
-    setSkeletonCapture(enabled && esp);
+    setSkeletonCapture((enabled && esp) || overlay);
     if (enabled && (esp || aimbot))
         collectDeveloperEsp(call, base, client, resolveDeveloperPlayer(call, base, client), esp, aimbot);
     else clearDeveloperEsp();

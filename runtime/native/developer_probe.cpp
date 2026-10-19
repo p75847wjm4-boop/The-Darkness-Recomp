@@ -82,19 +82,7 @@ void dumpDeveloperProbe(PPCContext& ctx, uint8_t* base, uint32_t client) {
         const float dx = f32(base, object + 64) - px, dy = f32(base, object + 68) - py;
         auto call = ctx; call.r3.u64 = client; call.r4.u64 = id;
         sub_8249D618(call, base);
-        CapturedSkeleton animated;
-        if (call.r3.u32 && capturedSkeleton(call.r3.u32, animated) && dx * dx + dy * dy < best) {
-            best = dx * dx + dy * dy; nearest = call.r3.u32;
-        }
-    }
-    {
-        uint32_t keys[16];
-        const auto keyCount = capturedCharacters(keys, 16);
-        std::fprintf(stderr, "[Probe %u] captured skeletons=%u:", dumpCount, keyCount);
-        for (unsigned i = 0; i < keyCount; ++i)
-            std::fprintf(stderr, " %08X(vt %08X)", keys[i], readable(base, keys[i], 4) ? PPC_LOAD_U32(keys[i]) : 0);
-        std::fputc('\n', stderr);
-        if (!nearest && keyCount) nearest = keys[0];
+        if (call.r3.u32 && dx * dx + dy * dy < best) { best = dx * dx + dy * dy; nearest = call.r3.u32; }
     }
     if (nearest) {
         const float nx = f32(base, nearest + 64), ny = f32(base, nearest + 68), nz = f32(base, nearest + 72);
@@ -149,10 +137,27 @@ void dumpDeveloperProbe(PPCContext& ctx, uint8_t* base, uint32_t client) {
                     search(pointer, depth == 0 ? 8192 : 4096, depth + 1, path + "+" + std::to_string(offset) + ">");
             }
         };
-        // Skeleton captured from the original animation path this frame.
+        // Skeletons evaluated this frame; pick the one whose first bone matrix
+        // translation is nearest this NPC.
+        const auto skeletons = capturedSkeletons();
+        std::fprintf(stderr, "[Probe %u] captured skeletons=%zu\n", dumpCount, skeletons.size());
         CapturedSkeleton skeleton;
-        std::fprintf(stderr, "[Probe %u] skeleton captured=%u\n", dumpCount, unsigned(capturedSkeleton(nearest, skeleton)));
+        float closest = 1e30f;
+        for (const auto& candidate : skeletons) {
+            if (!readable(base, candidate.instance, 64)) continue;
+            for (const uint32_t field : {32u, 36u}) {
+                const auto array = PPC_LOAD_U32(candidate.instance + field);
+                if (!readable(base, array, 64)) continue;
+                const float dx = f32(base, array + 48) - nx, dy = f32(base, array + 52) - ny, dz = f32(base, array + 56) - nz;
+                const float distance = dx * dx + dy * dy + dz * dz;
+                std::fprintf(stderr, "[Probe %u] candidate skel=%08X inst=%08X field=%u bone0=%g %g %g\n", dumpCount,
+                             candidate.skeleton, candidate.instance, field, dx, dy, dz);
+                if (distance < closest) { closest = distance; skeleton = candidate; }
+            }
+        }
         if (skeleton.skeleton && readable(base, skeleton.skeleton, 64) && readable(base, skeleton.instance, 128)) {
+            std::fprintf(stderr, "[Probe %u] chosen skel=%08X inst=%08X distance=%g\n", dumpCount,
+                         skeleton.skeleton, skeleton.instance, std::sqrt(closest));
             block(base, "skelobj", skeleton.skeleton, 64);
             block(base, "skelinst", skeleton.instance, 128);
             const auto nodes = PPC_LOAD_U32(skeleton.skeleton + 12);
