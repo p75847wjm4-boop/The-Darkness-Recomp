@@ -854,12 +854,10 @@ std::vector<const DonorRecord*> completeDonors(std::vector<DonorRecord>& records
 
 std::shared_ptr<const CachedWeaponFile> extractDonor(PPCContext& ctx, uint8_t* base,
     const std::filesystem::path& gameDirectory, const std::string& name,
-    const std::vector<const DonorRecord*>& records, const Ranges* partial = nullptr,
-    const std::string& level = {}) {
+    const std::vector<const DonorRecord*>& records, const Ranges* partial = nullptr) {
     const auto size = records.front()->size;
-    // Partial copies hold one level's reads; keep them apart per level.
     const auto path = gameDirectory.parent_path() / L"build_native/run/developer-donors" /
-        (partial ? std::filesystem::path(level) : std::filesystem::path()) / std::filesystem::path(name);
+        (partial ? L"level" : L"") / std::filesystem::path(name);
     std::error_code error;
     if (!std::filesystem::exists(path, error) || std::filesystem::file_size(path, error) != size) {
         File file{name, size, {}};
@@ -942,25 +940,7 @@ std::shared_ptr<const CachedWeaponFile> levelVariant(PPCContext& ctx, uint8_t* b
         }
     }
     if (!best) return {};
-    return extractDonor(ctx, base, gameDirectory, source, bestRecords, &bestRanges, level);
-}
-// Texture containers are read in place; the level's archives (and the global
-// context) record the images the level loaded, including a reused variant's.
-std::shared_ptr<const CachedWeaponFile> levelTextures(PPCContext& ctx, uint8_t* base,
-    const std::filesystem::path& gameDirectory, const std::string& name, const std::string& level) {
-    const auto records = donorIndex.find(name);
-    if (level.empty() || records == donorIndex.end()) return {};
-    Ranges ranges;
-    std::vector<const DonorRecord*> chosen;
-    for (const auto& record : records->second) {
-        const auto archive = record.archive.filename().string();
-        if (!startsWithNoCase(archive, level + "_") && !startsWithNoCase(archive, "GameContext_")) continue;
-        if (!chosen.empty() && record.size != chosen.front()->size) continue;
-        chosen.push_back(&record);
-        for (const auto [first, count] : record.ranges) addRange(ranges, first, count);
-    }
-    if (chosen.empty()) return {};
-    return extractDonor(ctx, base, gameDirectory, name, chosen, &ranges, level);
+    return extractDonor(ctx, base, gameDirectory, source, bestRecords, &bestRanges);
 }
 }
 
@@ -972,21 +952,12 @@ std::shared_ptr<const CachedWeaponFile> developerDonorFile(PPCContext& ctx, uint
     constexpr std::string_view content = "content\\";
     if (!key.starts_with(content)) return {};
     const std::string name(key.substr(content.size()));
-    const bool texture = name.starts_with("textures\\") && name.ends_with(".xtc");
-    if (!texture && !name.starts_with("models\\") && !name.starts_with("anim\\")) return {};
-    const auto level = developerSnapshot().level;
+    if (!name.starts_with("models\\") && !name.starts_with("anim\\")) return {};
     std::lock_guard lock(donorMutex);
-    const auto cacheKey = level + "|" + name;
-    if (const auto found = donorFiles.find(cacheKey); found != donorFiles.end()) return found->second;
-    auto& prepared = donorFiles[cacheKey];
+    if (const auto found = donorFiles.find(name); found != donorFiles.end()) return found->second;
+    auto& prepared = donorFiles[name];
     try {
         if (!donorIndexed) buildDonorIndex(gameDirectory);
-        if (texture) {
-            prepared = levelTextures(ctx, base, gameDirectory, name, level);
-            if (prepared)
-                std::fprintf(stderr, "[Donor] Serving '%s' from %s's archives.\n", name.c_str(), level.c_str());
-            return prepared;
-        }
         const auto records = donorIndex.find(name);
         const auto chosen = records == donorIndex.end() ? std::vector<const DonorRecord*>{}
                                                         : completeDonors(records->second);
