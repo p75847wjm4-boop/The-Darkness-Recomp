@@ -936,7 +936,9 @@ std::shared_ptr<const CachedWeaponFile> levelVariant(PPCContext& ctx, uint8_t* b
             for (const auto [first, count] : record.ranges) addRange(ranges, first, count);
         }
         if (chosen.empty() || ranges.empty() || ranges.front().first) continue;
-        if (!best || coverage(ranges) > coverage(bestRanges)) {
+        // donorIndex is ordered, so the first match is the lowest variant
+        // number: in Chinatown, the Mob_Body_02 its placed mobsters wear.
+        if (!best) {
             best = &records; bestRanges = std::move(ranges); bestRecords = std::move(chosen);
             source = candidate;
         }
