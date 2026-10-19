@@ -82,7 +82,12 @@ void configureDeveloperWeaponMods(uint8_t* base, uint32_t actor, bool rapid, boo
     activeBase.store(base, std::memory_order_release);
     rapidFire.store(rapid, std::memory_order_release);
     noRecoil.store(steady, std::memory_order_release);
-    modInventory.store(PPC_LOAD_U32(actor + kInventoryOffset), std::memory_order_release);
+    const auto inventory = PPC_LOAD_U32(actor + kInventoryOffset);
+    if (modInventory.exchange(inventory, std::memory_order_acq_rel) != inventory) {
+        const auto savedMath = _mm_getcsr();
+        std::fprintf(stderr, "[WeaponMods] on: rapid=%d recoil=%d inventory=%08X\n", rapid, steady, inventory);
+        _mm_setcsr(savedMath);
+    }
 }
 }
 // Original 822C26C8(weapon, shooter, delay, f1, f2) runs as each shot fires:
