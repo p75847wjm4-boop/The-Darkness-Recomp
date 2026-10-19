@@ -35,6 +35,7 @@ struct DeveloperSnapshot {
     bool noclip = false;
     bool infiniteAmmo = false;
     bool bunnyHop = false;
+    bool speedometer = false;
     bool darklingGod = false;
     bool espBox = false;
     bool espSkeleton = false;
@@ -65,8 +66,13 @@ void requestDeveloperBunnyHop(bool enabled);
 // Input thread: whether held jump should re-press, and the held state.
 bool developerBunnyHopEnabled() noexcept;
 void noteDeveloperJumpHeld(bool held) noexcept;
-// Speed multiplier earned by holding jump: +30% per second, up to 2.5x.
+// Speed multiplier earned by holding jump: +30% per second, up to the max.
 float developerBunnyHopBoost() noexcept;
+void setDeveloperBunnyHopMax(float multiplier) noexcept; // 1.5..10
+float developerBunnyHopMax() noexcept;
+void requestDeveloperSpeedometer(bool enabled);
+// Player's horizontal speed in meters per second; negative while unavailable.
+float developerPlayerSpeed() noexcept;
 void requestDeveloperDarklingGod(bool enabled);
 void requestDeveloperEspBox(bool enabled);
 void requestDeveloperEspSkeleton(bool enabled);

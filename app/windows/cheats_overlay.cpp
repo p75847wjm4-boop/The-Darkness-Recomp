@@ -22,7 +22,7 @@ constexpr UINT_PTR kRefreshTimer = 1;
 enum : int {
     kSpeed = 2001, kInvincible, kNoclip, kInfiniteAmmo, kUnlock, kMaxDarkness, kAimbot,
     kWeapons, kGive, kBox, kSkeleton, kMission, kLoad, kShortcut, kDefaults, kProbe,
-    kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov, kHealth, kSpawnName, kSpawn, kDistance, kMaxDistance, kNames, kDarklingGod, kBunnyHop
+    kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov, kHealth, kSpawnName, kSpawn, kDistance, kMaxDistance, kNames, kDarklingGod, kBunnyHop, kSpeedometer, kHopMax
 };
 constexpr int kWidth = 640, kHeight = 704;
 constexpr BYTE kOpacity = 235;
@@ -170,7 +170,7 @@ void CheatsOverlay::createControls() {
     control(window_, L"STATIC", L"CHEATS", 0, 16, 8, 300, 26, 0, titleFont_);
 
     // Left column: player, aim, weapons.
-    group(window_, L"PLAYER", 12, 40, 304, 186);
+    group(window_, L"PLAYER", 12, 40, 304, 216);
     control(window_, L"STATIC", L"SPEED", 0, 26, 64, 60, 18);
     speed_ = control(window_, L"COMBOBOX", L"", comboStyle, 90, 60, 130, 240, kSpeed);
     for (const auto* name : kSpeedNames) SendMessageW(speed_, CB_ADDSTRING, 0, LPARAM(name));
@@ -186,18 +186,23 @@ void CheatsOverlay::createControls() {
     cameraFov_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 104, 190, 150, 26, kCameraFov);
     SendMessageW(cameraFov_, TBM_SETRANGE, FALSE, MAKELPARAM(59, 120));
     cameraFovValue_ = control(window_, L"STATIC", L"", 0, 258, 194, 54, 18);
+    speedometer_ = check(window_, L"SPEEDOMETER", 26, 224, 112, kSpeedometer);
+    control(window_, L"STATIC", L"HOP MAX", 0, 142, 226, 56, 18);
+    hopMax_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 196, 222, 70, 26, kHopMax);
+    SendMessageW(hopMax_, TBM_SETRANGE, FALSE, MAKELPARAM(15, 100)); // Tenths: 1.5x..10x.
+    hopMaxValue_ = control(window_, L"STATIC", L"", 0, 268, 226, 44, 18);
 
-    group(window_, L"AIM", 12, 234, 304, 108);
-    aimbot_ = check(window_, L"AIMBOT (HOLD V OR MOUSE 4)", 26, 256, 280, kAimbot);
-    control(window_, L"STATIC", L"AIM FOV", 0, 26, 286, 60, 18);
-    fov_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 84, 282, 170, 26, kFov);
+    group(window_, L"AIM", 12, 264, 304, 108);
+    aimbot_ = check(window_, L"AIMBOT (HOLD V OR MOUSE 4)", 26, 286, 280, kAimbot);
+    control(window_, L"STATIC", L"AIM FOV", 0, 26, 316, 60, 18);
+    fov_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 84, 312, 170, 26, kFov);
     SendMessageW(fov_, TBM_SETRANGE, FALSE, MAKELPARAM(5, 90));
-    fovValue_ = control(window_, L"STATIC", L"", 0, 258, 286, 50, 18);
-    fovCircle_ = check(window_, L"SHOW FOV CIRCLE", 26, 312, 270, kFovCircle);
+    fovValue_ = control(window_, L"STATIC", L"", 0, 258, 316, 50, 18);
+    fovCircle_ = check(window_, L"SHOW FOV CIRCLE", 26, 342, 270, kFovCircle);
 
-    group(window_, L"WEAPONS", 12, 350, 304, 238);
+    group(window_, L"WEAPONS", 12, 380, 304, 208);
     weapons_ = control(window_, L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP | WS_BORDER,
-                       26, 370, 276, 176, kWeapons);
+                       26, 400, 276, 146, kWeapons);
     for (const auto& weapon : developerWeapons()) {
         std::wstring title(weapon.title.begin(), weapon.title.end());
         CharUpperBuffW(title.data(), DWORD(title.size()));
@@ -291,6 +296,7 @@ void CheatsOverlay::refresh() {
     setCheck(infiniteAmmo_, snapshot.infiniteAmmo);
     setCheck(darklingGod_, snapshot.darklingGod);
     setCheck(bunnyHop_, snapshot.bunnyHop);
+    setCheck(speedometer_, snapshot.speedometer);
     setCheck(aimbot_, snapshot.aimbot);
     setCheck(box_, snapshot.espBox);
     setCheck(skeleton_, snapshot.espSkeleton);
@@ -351,6 +357,8 @@ void CheatsOverlay::restoreDefaults() {
     requestDeveloperInfiniteAmmo(false);
     requestDeveloperDarklingGod(false);
     requestDeveloperBunnyHop(false);
+    requestDeveloperSpeedometer(false);
+    setDeveloperBunnyHopMax(2.5f);
     requestDeveloperAimbot(false);
     requestDeveloperEspBox(false);
     requestDeveloperEspSkeleton(false);
@@ -373,6 +381,7 @@ void CheatsOverlay::command(int id, int notification) {
     case kInfiniteAmmo: if (clicked) requestDeveloperInfiniteAmmo(checked(infiniteAmmo_)); break;
     case kDarklingGod: if (clicked) requestDeveloperDarklingGod(checked(darklingGod_)); break;
     case kBunnyHop: if (clicked) requestDeveloperBunnyHop(checked(bunnyHop_)); break;
+    case kSpeedometer: if (clicked) requestDeveloperSpeedometer(checked(speedometer_)); break;
     case kUnlock: if (clicked && developerSnapshot().hasActivePlayer) requestDeveloperUnlockDarkness(); break;
     case kMaxDarkness: if (clicked && developerSnapshot().hasActivePlayer) requestDeveloperMaxDarkness(); break;
     case kAimbot: if (clicked) requestDeveloperAimbot(checked(aimbot_)); break;
@@ -423,6 +432,10 @@ void CheatsOverlay::refreshStyle() {
     setCheck(fovCircle_, style.fovCircle);
     setCheck(health_, style.health);
     setCheck(distance_, style.distance);
+    SendMessageW(hopMax_, TBM_SETPOS, TRUE, LPARAM(developerBunnyHopMax() * 10 + 0.5f));
+    wchar_t hop[16];
+    swprintf_s(hop, L"%.1fX", developerBunnyHopMax());
+    SetWindowTextW(hopMaxValue_, hop);
     setCheck(names_, style.names);
     SendMessageW(maxDistance_, TBM_SETPOS, TRUE, LPARAM(style.maxDistance));
     SetWindowTextW(maxDistanceValue_, rangeText(style.maxDistance).c_str());
@@ -440,6 +453,11 @@ void CheatsOverlay::slider(HWND control) {
     if (control == cameraFov_) {
         // Session change; Video Settings saves the camera FOV permanently.
         setFieldOfViewSetting(position < 60 ? kOriginalFov : float((std::min)(position, 120)));
+        refreshStyle();
+        return;
+    }
+    if (control == hopMax_) {
+        setDeveloperBunnyHopMax(float(std::clamp(position, 15, 100)) / 10);
         refreshStyle();
         return;
     }
@@ -506,7 +524,7 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
         const bool restoreFocus = foreground == closed || foreground == owner_;
         KillTimer(closed, kRefreshTimer);
         SetWindowLongPtrW(closed, GWLP_USERDATA, 0);
-        window_ = speed_ = invincible_ = noclip_ = infiniteAmmo_ = darklingGod_ = bunnyHop_ = unlock_ = maxDarkness_ = aimbot_ =
+        window_ = speed_ = invincible_ = noclip_ = infiniteAmmo_ = darklingGod_ = bunnyHop_ = speedometer_ = hopMax_ = hopMaxValue_ = unlock_ = maxDarkness_ = aimbot_ =
             weapons_ = give_ = box_ = skeleton_ = mission_ = load_ = shortcut_ = defaults_ = status_ =
             tracers_ = boxColor_ = boneColor_ = tracerColor_ = opacity_ = opacityValue_ = fov_ = fovValue_ =
             fovCircle_ = cameraFov_ = cameraFovValue_ = health_ = distance_ = names_ = maxDistance_ = maxDistanceValue_ = spawn_ = spawnButton_ = nullptr;

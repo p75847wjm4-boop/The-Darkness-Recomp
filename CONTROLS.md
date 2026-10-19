@@ -218,7 +218,7 @@ Press **F7** to open or close the cheats overlay in the middle of the game
 window. It blocks gameplay input while open; close it, then click the game or
 press F2 to resume mouse control. Options last for this session only.
 
-- **Player:** speed (0.25x to 4x), **Bhop** (hold jump to keep hopping; speed builds up to 2.5x while held), **God mode** (invincible), **Noclip**, **Infinite ammo**, **God darklings** (your summoned darklings cannot die)
+- **Player:** speed (0.25x to 4x), **Bhop** (hold jump to keep hopping; speed builds by 30% a second up to **Hop max**, 1.5x to 10x), **Speedometer** (horizontal speed near the bottom of the screen), **God mode** (invincible), **Noclip**, **Infinite ammo**, **God darklings** (your summoned darklings cannot die)
   (guns never use rounds; reload once if the magazine was already empty),
   **Unlock all Darkness**, **Max Darkness level** and **Camera FOV** (Original or
   60 to 120 degrees; this session only, Video Settings saves it permanently).

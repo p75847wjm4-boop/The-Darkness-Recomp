@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <bit>
 #include <cmath>
 #include <map>
 #include <mutex>
@@ -33,6 +34,33 @@ bool panelVisible = false;
 std::atomic<bool> needsUpdate{false};
 std::atomic<bool> bunnyHopOn{false};
 std::atomic<uint64_t> jumpHeldSince{0};
+std::atomic<float> bunnyHopMax{2.5f};
+std::atomic<float> playerSpeed{-1};
+
+// Horizontal speed of the server player from successive positions (row 3 of
+// the world matrix, +64), smoothed; 32 world units per meter.
+void measurePlayerSpeed(uint8_t* base, uint32_t actor) {
+    static LARGE_INTEGER frequency{};
+    static LARGE_INTEGER last{};
+    static float lastX = 0, lastY = 0, smoothed = 0;
+    static uint32_t lastActor = 0;
+    if (!frequency.QuadPart) QueryPerformanceFrequency(&frequency);
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    if (!actor) { playerSpeed.store(-1, std::memory_order_release); lastActor = 0; return; }
+    const float x = std::bit_cast<float>(PPC_LOAD_U32(actor + 64));
+    const float y = std::bit_cast<float>(PPC_LOAD_U32(actor + 68));
+    const double seconds = double(now.QuadPart - last.QuadPart) / double(frequency.QuadPart);
+    if (actor != lastActor || seconds > 0.5) {
+        lastActor = actor; last = now; lastX = x; lastY = y; smoothed = 0;
+    } else if (seconds >= 0.05) {
+        const float dx = x - lastX, dy = y - lastY;
+        const float metersPerSecond = float(std::sqrt(dx * dx + dy * dy) / seconds / 32);
+        smoothed = smoothed * 0.6f + metersPerSecond * 0.4f;
+        last = now; lastX = x; lastY = y;
+    }
+    playerSpeed.store(smoothed, std::memory_order_release);
+}
 
 void refreshWorkLocked() {
     needsUpdate.store(panelVisible || pendingMission.has_value() || pendingWeapon.has_value() || pendingSpawn.has_value() || pendingProbe || playerToolsEnabled ||
@@ -66,7 +94,7 @@ void publish(uint64_t request, bool canLoad, bool hasPlayer, std::string_view st
     // hooks. A request arriving during that update must keep its next update.
     if (playerProcessed && requestRevision == request && state.playerSpeed == 1 &&
         !state.invincible && !state.noclip && !state.infiniteAmmo &&
-        !state.darklingGod && !state.bunnyHop &&
+        !state.darklingGod && !state.bunnyHop && !state.speedometer &&
         !state.espBox && !state.espSkeleton && !state.espTracers &&
         !state.aimbot) playerToolsEnabled = false;
     refreshWorkLocked();
@@ -250,8 +278,20 @@ float developerBunnyHopBoost() noexcept {
     const auto since = jumpHeldSince.load(std::memory_order_acquire);
     if (!bunnyHopOn.load(std::memory_order_acquire) || !since) return 1;
     const float seconds = float(GetTickCount64() - since) / 1000;
-    return (std::min)(2.5f, 1 + 0.3f * seconds);
+    return (std::min)(bunnyHopMax.load(std::memory_order_relaxed), 1 + 0.3f * seconds);
 }
+void setDeveloperBunnyHopMax(float multiplier) noexcept {
+    if (std::isfinite(multiplier)) bunnyHopMax.store(std::clamp(multiplier, 1.5f, 10.f), std::memory_order_relaxed);
+}
+float developerBunnyHopMax() noexcept { return bunnyHopMax.load(std::memory_order_relaxed); }
+void requestDeveloperSpeedometer(bool enabled) {
+    std::lock_guard lock(stateMutex);
+    state.speedometer = enabled;
+    playerToolsEnabled = true;
+    if (!enabled) playerSpeed.store(-1, std::memory_order_release);
+    requested(enabled ? "Speedometer on." : "Speedometer off.");
+}
+float developerPlayerSpeed() noexcept { return playerSpeed.load(std::memory_order_acquire); }
 
 void requestDeveloperDarklingGod(bool enabled) {
     std::lock_guard lock(stateMutex);
@@ -331,7 +371,7 @@ void resetDeveloperTools() {
 bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool missionReady) {
     std::optional<std::string> mission, weapon, spawn;
     float speed;
-    bool invincible, noclip, infiniteAmmo, darklingGod, bunnyHop, espBox, espSkeleton, espTracers, aimbot, enabled, unlockDarkness, maxDarkness, probe, overlay;
+    bool invincible, noclip, infiniteAmmo, darklingGod, bunnyHop, speedometer, espBox, espSkeleton, espTracers, aimbot, enabled, unlockDarkness, maxDarkness, probe, overlay;
     uint64_t request;
     {
         std::lock_guard lock(stateMutex);
@@ -346,6 +386,7 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         noclip = state.noclip;
         infiniteAmmo = state.infiniteAmmo;
         bunnyHop = state.bunnyHop;
+        speedometer = state.speedometer;
         darklingGod = state.darklingGod;
         espBox = state.espBox;
         espSkeleton = state.espSkeleton;
@@ -380,6 +421,8 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
     }
     const auto player = updateDeveloperPlayer(call, base, client, speed, invincible, enabled, noclip, infiniteAmmo,
                                               darklingGod, bunnyHop);
+    if (speedometer && enabled) measurePlayerSpeed(base, resolveDeveloperPlayer(call, base, client).actor);
+    else playerSpeed.store(-1, std::memory_order_release);
     const bool esp = espBox || espSkeleton || espTracers;
     setSkeletonCapture((enabled && esp) || overlay);
     if (enabled && (esp || aimbot))

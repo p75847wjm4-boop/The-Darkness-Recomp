@@ -27,6 +27,7 @@ private:
     HBITMAP bitmap_{};
     HGDIOBJ previousBitmap_{};
     HPEN pen_{}, bonePen_{}, tracerPen_{}, circlePen_{};
+    HFONT speedFont_{};
     COLORREF penColors_[4]{};
     BYTE opacity_ = 0;
     int bufferWidth_ = 0, bufferHeight_ = 0;

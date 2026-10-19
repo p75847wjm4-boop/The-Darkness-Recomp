@@ -1,6 +1,7 @@
 #include "esp_overlay.h"
 #include "esp_style.h"
 #include "runtime/native/developer_esp.h"
+#include "runtime/native/developer_tools.h"
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -43,6 +44,7 @@ void EspOverlay::close() {
         if (*pen) DeleteObject(*pen);
         *pen = nullptr;
     }
+    if (speedFont_) { DeleteObject(speedFont_); speedFont_ = nullptr; }
     opacity_ = 0;
     if (window_ && IsWindow(window_)) DestroyWindow(window_);
     window_ = nullptr;
@@ -68,7 +70,8 @@ void EspOverlay::update() {
     const auto view = developerEspSnapshot();
     const auto& style = espStyle();
     const bool circle = style.fovCircle && view.aimbot;
-    const bool visible = view.valid && (view.box || view.skeleton || view.tracers || circle) &&
+    const bool speed = DarkRecomp::Native::developerPlayerSpeed() >= 0;
+    const bool visible = ((view.valid && (view.box || view.skeleton || view.tracers || circle)) || speed) &&
                          IsWindow(owner_) && !IsIconic(owner_);
     if (!visible) {
         if (shown_) { ShowWindow(window_, SW_HIDE); shown_ = false; }
@@ -128,6 +131,17 @@ void EspOverlay::paint(HDC dc, int width, int height) {
         SelectObject(dc, pen_);
     }
     SetBkMode(dc, TRANSPARENT);
+    if (const float speed = DarkRecomp::Native::developerPlayerSpeed(); speed >= 0) {
+        if (!speedFont_) speedFont_ = CreateFontW(-28, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+            OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+        SelectObject(dc, speedFont_);
+        wchar_t text[48];
+        const int length = swprintf_s(text, L"%.1f m/s  (%.0f km/h)", speed, speed * 3.6f);
+        RECT line{0, height - 110, width, height - 76};
+        SetTextColor(dc, RGB(255, 255, 255));
+        if (length > 0) DrawTextW(dc, text, length, &line, DT_CENTER | DT_SINGLELINE | DT_NOCLIP);
+        SetTextColor(dc, colors[0]);
+    }
     SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
     for (const auto& target : view.targets) {
         // Starbreeze world units: 32 per meter (the 62-unit body is ~1.9 m).
