@@ -9,6 +9,7 @@
 #include <bit>
 #include <cmath>
 #include <mutex>
+#include <unordered_map>
 
 namespace DarkRecomp::Native {
 namespace {
@@ -138,12 +139,12 @@ bool joint(uint8_t* base, uint32_t nodes, uint32_t matrices, uint32_t index, flo
     return true;
 }
 
-void attachSkeleton(uint8_t* base, const Pose& pose, EspTarget& target) {
+unsigned attachSkeleton(uint8_t* base, const Pose& pose, EspTarget& target) {
     const auto nodes = PPC_LOAD_U32(pose.skeleton + 12);
-    if (!committed(base, nodes, 16)) return;
+    if (!committed(base, nodes, 16)) return 0;
     const auto count = (std::min)(PPC_LOAD_U32(nodes), uint32_t(PPC_LOAD_U16(pose.instance + 60)));
     const auto matrices = PPC_LOAD_U32(pose.instance + 36);
-    if (!count || count > 256 || !committed(base, nodes + 16, count * 48) || !committed(base, matrices, count * 64)) return;
+    if (!count || count > 256 || !committed(base, nodes + 16, count * 48) || !committed(base, matrices, count * 64)) return 0;
     for (uint32_t i = 1; i < count; ++i) {
         const auto parent = PPC_LOAD_U16(nodes + 16 + i * 48 + 28);
         if (parent >= count) continue;
@@ -159,7 +160,17 @@ void attachSkeleton(uint8_t* base, const Pose& pose, EspTarget& target) {
             target.head[0] = a[0]; target.head[1] = a[1]; target.head[2] = a[2];
         }
     }
+    return unsigned(target.bones.size());
 }
+
+// Last good skeleton per NPC, re-used (moved with the NPC) for a short time so
+// frames where the game skips or rewrites an evaluation do not blink.
+struct HeldPose {
+    EspTarget target;
+    uint64_t tick = 0;
+};
+std::unordered_map<uint32_t, HeldPose> held;
+constexpr uint64_t kHoldMs = 300;
 
 std::vector<Pose> currentPoses(uint8_t* base) {
     std::vector<Pose> poses;
@@ -181,12 +192,15 @@ void rememberGameplayFov(float degrees) noexcept {
 }
 
 void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
-                         const DeveloperPlayerHandles& player, bool esp, bool aimbot) {
+                         const DeveloperPlayerHandles& player, bool box, bool skeleton, bool aimbot) {
+    const bool esp = box || skeleton;
+    const auto now = GetTickCount64();
     aimEnabled.store(aimbot, std::memory_order_release);
     regions = {}; // Allocations may have been released since the last update.
     EspSnapshot next;
     if ((esp || aimbot) && player.actor && player.server && clientView(ctx, base, client, next)) {
-        next.esp = esp;
+        next.box = box;
+        next.skeleton = skeleton;
         const auto poses = esp ? currentPoses(base) : std::vector<Pose>{};
         const auto objects = PPC_LOAD_U32(player.server + 1460);
         if (committed(base, objects, 28)) {
@@ -204,14 +218,36 @@ void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
                     // With ESP on, show only characters the game animated this
                     // frame: their skeleton root sits exactly at the origin.
                     if (esp) {
-                        const Pose* pose = nullptr;
+                        // Several instances can share one character (blending,
+                        // attachments); keep the one with the most valid bones.
+                        EspTarget best = target;
+                        unsigned bestBones = 0;
+                        bool animated = false;
                         for (const auto& candidate : poses) {
                             const float dx = candidate.root[0] - target.x, dy = candidate.root[1] - target.y,
                                         dz = candidate.root[2] - target.z;
-                            if (dx * dx + dy * dy + dz * dz < 4) { pose = &candidate; break; }
+                            if (dx * dx + dy * dy + dz * dz >= 36) continue;
+                            animated = true;
+                            EspTarget trial = target;
+                            const auto bones = attachSkeleton(base, candidate, trial);
+                            if (bones > bestBones) { bestBones = bones; best = std::move(trial); }
                         }
-                        if (!pose) continue;
-                        attachSkeleton(base, *pose, target);
+                        auto found = held.find(id);
+                        if (bestBones >= 6) {
+                            held[id] = {best, now};
+                            target = std::move(best);
+                        } else if (found != held.end() && now - found->second.tick < kHoldMs) {
+                            const auto& last = found->second.target;
+                            const float mx = target.x - last.x, my = target.y - last.y, mz = target.z - last.z;
+                            target.bones = last.bones;
+                            for (auto& bone : target.bones) {
+                                bone[0] += mx; bone[1] += my; bone[2] += mz;
+                                bone[3] += mx; bone[4] += my; bone[5] += mz;
+                            }
+                            target.hasHead = last.hasHead;
+                            target.head[0] = last.head[0] + mx; target.head[1] = last.head[1] + my;
+                            target.head[2] = last.head[2] + mz;
+                        } else if (!animated) continue;
                     }
                     next.targets.push_back(std::move(target));
                 }
@@ -219,12 +255,15 @@ void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
         }
         next.valid = true;
     }
+    for (auto it = held.begin(); it != held.end();)
+        it = now - it->second.tick > kHoldMs ? held.erase(it) : std::next(it);
     std::lock_guard lock(snapshotMutex);
     current = std::move(next);
 }
 
 void clearDeveloperEsp() noexcept {
     aimEnabled.store(false, std::memory_order_release);
+    held.clear();
     lockedTarget.store(0, std::memory_order_relaxed);
     std::lock_guard lock(snapshotMutex);
     current = {};

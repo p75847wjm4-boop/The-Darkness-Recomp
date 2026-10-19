@@ -369,7 +369,9 @@ int wmain(int argc, wchar_t** argv) {
         DeveloperToolsWindow developerTools(window, mouse, [](bool enabled) {
             resolutionShortcut.setEnabled(enabled);
         }); developerToolsWindow = &developerTools;
-        CheatsOverlay cheats(window, mouse); cheatsOverlay = &cheats;
+        CheatsOverlay cheats(window, mouse, [] { return resolutionShortcut.enabled(); },
+            [](bool enabled) { resolutionShortcut.setEnabled(enabled); });
+        cheatsOverlay = &cheats;
         EspOverlay esp(window);
         AchievementsWindow achievements(window, mouse); achievementsWindow = &achievements;
         ClearMouseWindow clearMouseWindow;

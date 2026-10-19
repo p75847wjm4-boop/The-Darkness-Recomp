@@ -214,22 +214,27 @@ to resume mouse control.
 
 ## Cheats
 
-Press **F7** to open or close the cheats overlay in the top-left corner of the
-game window. **Infinite ammo** stops the player's guns from using rounds, so the
-magazine never runs out and you never need to reload. NPC ammo is unchanged.
-If the magazine was already empty when you turned it on, reload once.
-**ESP** draws a red box, a white skeleton and a health number over every living
-NPC the game is currently animating, even through walls. **Aimbot** turns your view toward the head of the living NPC closest to your crosshair
-(within about 25 degrees) while you hold **V** or **Mouse 4**. Both include
-friendly and neutral characters, and the aimbot does not check line of sight.
-**Weapons** lists the campaign guns. Select one and press **Give** (or
-double-click it) to add it to your inventory, then switch to it as usual.
-A weapon can only be given in a level that loads it; otherwise the overlay says
-it is not available here. Given weapons stay in your inventory and can be saved.
-Cheats last for the current session only and are never saved. Like the
-developer panel, the overlay blocks gameplay input while it is open; close it,
-then click the game or press F2 to resume mouse control. **Restore defaults** in
-the F5 panel also turns cheats off.
+Press **F7** to open or close the cheats overlay in the middle of the game
+window. It blocks gameplay input while open; close it, then click the game or
+press F2 to resume mouse control. Options last for this session only.
+
+- **Player:** speed (0.25x to 4x), **Invincible**, **Noclip**, **Infinite ammo**
+  (guns never use rounds; reload once if the magazine was already empty),
+  **Unlock all Darkness** and **Max Darkness level**.
+- **Aim:** **Aimbot** turns your view toward the head of the living NPC closest
+  to your crosshair (within about 25 degrees) while you hold **V** or **Mouse 4**.
+  It does not check line of sight.
+- **Weapons:** select a campaign gun and press **Give** (or double-click it).
+  A weapon can only be given in a level that loads it.
+- **Visuals:** **Box ESP** and **Skeleton ESP** draw over every living NPC the
+  game is animating, even through walls, with their health. Both include
+  friendly and neutral characters.
+- **Mission:** choose a destination and press **Load**.
+- **Settings:** the F6 resolution shortcut, **Restore defaults** (turns every
+  option off and resets speed), and **Dump** (diagnostic data for the runtime log).
+
+Mission loads, Darkness grants and given weapons can be autosaved. Back up your
+checkpoint first. The F5 developer panel remains available with the same tools.
 
 ## Implementation
 

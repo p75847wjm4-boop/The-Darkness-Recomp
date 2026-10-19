@@ -2,20 +2,41 @@
 #include "native_mouse.h"
 #include "runtime/native/developer_tools.h"
 #include "runtime/native/input.h"
-#include <string>
+#include <algorithm>
+#include <array>
 #include <cstdio>
 #include <exception>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 
 using namespace DarkRecomp::Native;
 
 namespace {
 constexpr wchar_t kWindowClass[] = L"DarkRecompCheatsOverlay";
 constexpr UINT_PTR kRefreshTimer = 1;
-constexpr int kInfiniteAmmo = 2001, kWeapons = 2002, kGive = 2003, kProbe = 2004, kEsp = 2005, kAimbot = 2006;
-constexpr int kWidth = 280, kHeight = 428, kMargin = 16;
-constexpr BYTE kOpacity = 225;
-constexpr COLORREF kBackground = RGB(12, 12, 14), kText = RGB(230, 230, 230), kDim = RGB(150, 150, 150);
+enum : int {
+    kSpeed = 2001, kInvincible, kNoclip, kInfiniteAmmo, kUnlock, kMaxDarkness, kAimbot,
+    kWeapons, kGive, kBox, kSkeleton, kMission, kLoad, kShortcut, kDefaults, kProbe
+};
+constexpr int kWidth = 640, kHeight = 524;
+constexpr BYTE kOpacity = 235;
+constexpr COLORREF kBackground = RGB(12, 12, 14), kField = RGB(28, 28, 32),
+                   kText = RGB(230, 230, 230), kDim = RGB(140, 140, 140);
+constexpr std::array<float, 9> kSpeeds{.25f, .5f, .75f, 1.f, 1.25f, 1.5f, 2.f, 3.f, 4.f};
+constexpr std::array<const wchar_t*, 9> kSpeedNames{
+    L"0.25X", L"0.5X", L"0.75X", L"1X (NORMAL)", L"1.25X", L"1.5X", L"2X", L"3X", L"4X"};
+
+std::wstring upper(std::string_view text) {
+    std::wstring result;
+    if (!text.empty()) {
+        const int size = MultiByteToWideChar(CP_UTF8, 0, text.data(), int(text.size()), nullptr, 0);
+        result.resize(size_t((std::max)(size, 0)));
+        if (size) MultiByteToWideChar(CP_UTF8, 0, text.data(), int(text.size()), result.data(), size);
+    }
+    if (!result.empty()) CharUpperBuffW(result.data(), DWORD(result.size()));
+    return result;
+}
 
 HWND control(HWND parent, const wchar_t* type, const wchar_t* text, DWORD style,
              int x, int y, int width, int height, int id = 0, HFONT font = nullptr) {
@@ -25,14 +46,37 @@ HWND control(HWND parent, const wchar_t* type, const wchar_t* text, DWORD style,
     SendMessageW(result, WM_SETFONT, WPARAM(font ? font : HFONT(GetStockObject(DEFAULT_GUI_FONT))), TRUE);
     return result;
 }
+HWND group(HWND parent, const wchar_t* title, int x, int y, int width, int height) {
+    return control(parent, L"BUTTON", title, BS_GROUPBOX, x, y, width, height);
+}
+HWND check(HWND parent, const wchar_t* text, int x, int y, int width, int id) {
+    return control(parent, L"BUTTON", text, BS_AUTOCHECKBOX | WS_TABSTOP, x, y, width, 22, id);
+}
+HWND button(HWND parent, const wchar_t* text, int x, int y, int width, int id) {
+    return control(parent, L"BUTTON", text, BS_PUSHBUTTON | WS_TABSTOP, x, y, width, 26, id);
+}
+void setCheck(HWND control, bool checked) {
+    SendMessageW(control, BM_SETCHECK, checked ? BST_CHECKED : BST_UNCHECKED, 0);
+}
+bool checked(HWND control) { return SendMessageW(control, BM_GETCHECK, 0, 0) == BST_CHECKED; }
 }
 
-CheatsOverlay::CheatsOverlay(HWND owner, NativeMouseWindow& mouse) : owner_(owner), mouse_(mouse) {}
+CheatsOverlay::CheatsOverlay(HWND owner, NativeMouseWindow& mouse, std::function<bool()> resolutionShortcut,
+                             std::function<void(bool)> setResolutionShortcut)
+    : owner_(owner), mouse_(mouse), resolutionShortcut_(std::move(resolutionShortcut)),
+      setResolutionShortcut_(std::move(setResolutionShortcut)) {}
+
 CheatsOverlay::~CheatsOverlay() {
     close();
     releaseInputGate();
     if (titleFont_) DeleteObject(titleFont_);
     if (background_) DeleteObject(background_);
+    if (field_) DeleteObject(field_);
+}
+
+bool CheatsOverlay::dropDownOpen() const {
+    return (speed_ && SendMessageW(speed_, CB_GETDROPPEDSTATE, 0, 0)) ||
+           (mission_ && SendMessageW(mission_, CB_GETDROPPEDSTATE, 0, 0));
 }
 
 bool CheatsOverlay::handleMessage(MSG& message) {
@@ -43,6 +87,8 @@ bool CheatsOverlay::handleMessage(MSG& message) {
         return true;
     }
     if (inside && message.message == WM_KEYDOWN && message.wParam == VK_ESCAPE) {
+        // Let an open drop-down cancel its pending choice first.
+        if (dropDownOpen()) return false;
         close();
         return true;
     }
@@ -58,7 +104,8 @@ bool CheatsOverlay::open() {
     nativeInput().setSettingsOpen(true);
     inputGate_ = true;
     if (!background_) background_ = CreateSolidBrush(kBackground);
-    if (!titleFont_) titleFont_ = CreateFontW(-16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+    if (!field_) field_ = CreateSolidBrush(kField);
+    if (!titleFont_) titleFont_ = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
     WNDCLASSW windowClass{};
     windowClass.lpfnWndProc = windowProc;
@@ -70,11 +117,20 @@ bool CheatsOverlay::open() {
         std::fputs("[Cheats] Cannot register overlay window.\n", stderr);
         return false;
     }
+    // Center on the game's client area, kept inside the monitor's work area.
+    RECT client{};
+    GetClientRect(owner_, &client);
     POINT origin{0, 0};
     ClientToScreen(owner_, &origin);
+    int x = origin.x + (client.right - kWidth) / 2, y = origin.y + (client.bottom - kHeight) / 2;
+    MONITORINFO monitor{sizeof(monitor)};
+    if (GetMonitorInfoW(MonitorFromWindow(owner_, MONITOR_DEFAULTTONEAREST), &monitor)) {
+        x = (std::max)(int(monitor.rcWork.left), (std::min)(x, int(monitor.rcWork.right) - kWidth));
+        y = (std::max)(int(monitor.rcWork.top), (std::min)(y, int(monitor.rcWork.bottom) - kHeight));
+    }
     const HWND created = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_CONTROLPARENT,
-        kWindowClass, L"CHEATS", WS_POPUP | WS_BORDER, origin.x + kMargin, origin.y + kMargin,
-        kWidth, kHeight, owner_, nullptr, windowClass.hInstance, this);
+        kWindowClass, L"CHEATS", WS_POPUP | WS_BORDER, x, y, kWidth, kHeight, owner_, nullptr,
+        windowClass.hInstance, this);
     if (!created) {
         releaseInputGate();
         std::fputs("[Cheats] Cannot create overlay window.\n", stderr);
@@ -102,71 +158,149 @@ void CheatsOverlay::releaseInputGate() {
 }
 
 void CheatsOverlay::createControls() {
-    control(window_, L"STATIC", L"CHEATS", 0, 14, 10, 200, 22, 0, titleFont_);
-    infiniteAmmo_ = control(window_, L"BUTTON", L"INFINITE AMMO", BS_AUTOCHECKBOX | WS_TABSTOP,
-                            14, 40, 250, 24, kInfiniteAmmo);
-    esp_ = control(window_, L"BUTTON", L"ESP (BOXES ON ENEMIES)", BS_AUTOCHECKBOX | WS_TABSTOP,
-                   14, 66, 250, 24, kEsp);
-    aimbot_ = control(window_, L"BUTTON", L"AIMBOT (HOLD V OR MOUSE 4)", BS_AUTOCHECKBOX | WS_TABSTOP,
-                      14, 92, 250, 24, kAimbot);
-    control(window_, L"STATIC", L"WEAPONS", 0, 14, 130, 252, 18);
+    constexpr DWORD comboStyle = CBS_DROPDOWNLIST | CBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP;
+    control(window_, L"STATIC", L"CHEATS", 0, 16, 8, 300, 26, 0, titleFont_);
+
+    // Left column: player, aim, weapons.
+    group(window_, L"PLAYER", 12, 40, 304, 172);
+    control(window_, L"STATIC", L"SPEED", 0, 26, 64, 60, 18);
+    speed_ = control(window_, L"COMBOBOX", L"", comboStyle, 90, 60, 130, 240, kSpeed);
+    for (const auto* name : kSpeedNames) SendMessageW(speed_, CB_ADDSTRING, 0, LPARAM(name));
+    invincible_ = check(window_, L"INVINCIBLE", 26, 94, 130, kInvincible);
+    noclip_ = check(window_, L"NOCLIP", 166, 94, 130, kNoclip);
+    infiniteAmmo_ = check(window_, L"INFINITE AMMO", 26, 120, 270, kInfiniteAmmo);
+    unlock_ = button(window_, L"UNLOCK ALL DARKNESS", 26, 154, 134, kUnlock);
+    maxDarkness_ = button(window_, L"MAX DARKNESS LEVEL", 168, 154, 134, kMaxDarkness);
+
+    group(window_, L"AIM", 12, 220, 304, 52);
+    aimbot_ = check(window_, L"AIMBOT (HOLD V OR MOUSE 4)", 26, 242, 280, kAimbot);
+
+    group(window_, L"WEAPONS", 12, 280, 304, 232);
     weapons_ = control(window_, L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP | WS_BORDER,
-                       14, 150, 252, 180, kWeapons);
+                       26, 300, 276, 170, kWeapons);
     for (const auto& weapon : developerWeapons()) {
         std::wstring title(weapon.title.begin(), weapon.title.end());
         CharUpperBuffW(title.data(), DWORD(title.size()));
         SendMessageW(weapons_, LB_ADDSTRING, 0, LPARAM(title.c_str()));
     }
     SendMessageW(weapons_, LB_SETCURSEL, 0, 0);
-    give_ = control(window_, L"BUTTON", L"GIVE", BS_PUSHBUTTON | WS_TABSTOP, 14, 336, 90, 26, kGive);
-    control(window_, L"BUTTON", L"DUMP", BS_PUSHBUTTON | WS_TABSTOP, 176, 336, 90, 26, kProbe);
-    status_ = control(window_, L"STATIC", L"", SS_LEFT, 14, 368, 252, 34);
-    control(window_, L"STATIC", L"F7 OR ESC CLOSES. GIVEN WEAPONS MAY BE SAVED.", 0, 14, 404, 252, 18);
+    give_ = button(window_, L"GIVE", 26, 476, 90, kGive);
+
+    // Right column: visuals, mission, settings, status.
+    group(window_, L"VISUALS", 328, 40, 300, 80);
+    box_ = check(window_, L"BOX ESP", 342, 62, 270, kBox);
+    skeleton_ = check(window_, L"SKELETON ESP", 342, 88, 270, kSkeleton);
+
+    group(window_, L"MISSION", 328, 128, 300, 92);
+    mission_ = control(window_, L"COMBOBOX", L"", comboStyle, 342, 150, 272, 320, kMission);
+    for (const auto& item : developerMissions()) {
+        const auto title = upper(item.title);
+        SendMessageW(mission_, CB_ADDSTRING, 0, LPARAM(title.c_str()));
+    }
+    SendMessageW(mission_, CB_SETCURSEL, 0, 0);
+    load_ = button(window_, L"LOAD", 342, 184, 90, kLoad);
+
+    group(window_, L"SETTINGS", 328, 228, 300, 92);
+    shortcut_ = check(window_, L"ENABLE F6 RESOLUTION SHORTCUT", 342, 250, 276, kShortcut);
+    defaults_ = button(window_, L"RESTORE DEFAULTS", 342, 282, 140, kDefaults);
+    button(window_, L"DUMP", 492, 282, 122, kProbe);
+
+    control(window_, L"STATIC", L"STATUS", 0, 330, 332, 296, 18);
+    status_ = control(window_, L"STATIC", L"", SS_LEFT, 330, 352, 296, 96);
+    control(window_, L"STATIC", L"F7 OR ESC CLOSES. MISSION LOADS, DARKNESS GRANTS AND GIVEN WEAPONS MAY AUTOSAVE.",
+            0, 330, 456, 296, 52);
 }
 
 void CheatsOverlay::refresh() {
     if (!window_ || !status_) return;
     const auto snapshot = developerSnapshot();
-    EnableWindow(infiniteAmmo_, snapshot.hasActivePlayer);
-    EnableWindow(weapons_, snapshot.hasActivePlayer);
-    EnableWindow(esp_, snapshot.hasActivePlayer);
-    EnableWindow(aimbot_, snapshot.hasActivePlayer);
-    SendMessageW(esp_, BM_SETCHECK, snapshot.esp ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(aimbot_, BM_SETCHECK, snapshot.aimbot ? BST_CHECKED : BST_UNCHECKED, 0);
-    EnableWindow(give_, snapshot.hasActivePlayer);
-    SendMessageW(infiniteAmmo_, BM_SETCHECK, snapshot.infiniteAmmo ? BST_CHECKED : BST_UNCHECKED, 0);
-    std::wstring status;
-    if (!snapshot.hasActivePlayer) status = L"AVAILABLE WHEN A PLAYER IS ACTIVE.";
-    else {
-        status.assign(snapshot.status.begin(), snapshot.status.end());
-        CharUpperBuffW(status.data(), DWORD(status.size()));
+    const bool player = snapshot.hasActivePlayer;
+    for (const HWND control : {speed_, invincible_, noclip_, infiniteAmmo_, unlock_, maxDarkness_, aimbot_,
+                               weapons_, give_, box_, skeleton_})
+        EnableWindow(control, player);
+    EnableWindow(mission_, snapshot.canLoadMission);
+    EnableWindow(load_, snapshot.canLoadMission);
+    EnableWindow(shortcut_, bool(setResolutionShortcut_));
+    // Never move a drop-down's highlighted row while the user is choosing.
+    if (!dropDownOpen()) {
+        const auto speed = std::find(kSpeeds.begin(), kSpeeds.end(), snapshot.playerSpeed);
+        SendMessageW(speed_, CB_SETCURSEL, speed == kSpeeds.end() ? -1 : speed - kSpeeds.begin(), 0);
     }
+    setCheck(invincible_, snapshot.invincible);
+    setCheck(noclip_, snapshot.noclip);
+    setCheck(infiniteAmmo_, snapshot.infiniteAmmo);
+    setCheck(aimbot_, snapshot.aimbot);
+    setCheck(box_, snapshot.espBox);
+    setCheck(skeleton_, snapshot.espSkeleton);
+    setCheck(shortcut_, resolutionShortcut_ && resolutionShortcut_());
+    std::wstring status = upper(snapshot.status);
+    if (!player) status += L"\nPLAYER OPTIONS BECOME AVAILABLE WHEN A PLAYER IS ACTIVE.";
     if (status != displayedStatus_) {
         displayedStatus_ = std::move(status);
         SetWindowTextW(status_, displayedStatus_.c_str());
     }
 }
 
-void CheatsOverlay::selectInfiniteAmmo() {
-    requestDeveloperInfiniteAmmo(SendMessageW(infiniteAmmo_, BM_GETCHECK, 0, 0) == BST_CHECKED);
+void CheatsOverlay::selectSpeed() {
+    const auto snapshot = developerSnapshot();
+    const LRESULT selected = SendMessageW(speed_, CB_GETCURSEL, 0, 0);
+    if (snapshot.hasActivePlayer && selected >= 0 && size_t(selected) < kSpeeds.size() &&
+        snapshot.playerSpeed != kSpeeds[size_t(selected)]) requestDeveloperSpeed(kSpeeds[size_t(selected)]);
     refresh();
 }
 
-void CheatsOverlay::selectEsp() {
-    requestDeveloperEsp(SendMessageW(esp_, BM_GETCHECK, 0, 0) == BST_CHECKED);
-    refresh();
-}
-
-void CheatsOverlay::selectAimbot() {
-    requestDeveloperAimbot(SendMessageW(aimbot_, BM_GETCHECK, 0, 0) == BST_CHECKED);
-    refresh();
+void CheatsOverlay::loadMission() {
+    if (!developerSnapshot().canLoadMission) { refresh(); return; }
+    const LRESULT selected = SendMessageW(mission_, CB_GETCURSEL, 0, 0);
+    const auto missions = developerMissions();
+    // Close before the loading movie and opening sequence, as the F5 panel does.
+    if (selected >= 0 && size_t(selected) < missions.size() &&
+        requestDeveloperMission(missions[size_t(selected)].id)) close();
+    else refresh();
 }
 
 void CheatsOverlay::giveWeapon() {
     const auto selected = SendMessageW(weapons_, LB_GETCURSEL, 0, 0);
     const auto weapons = developerWeapons();
-    if (selected < 0 || size_t(selected) >= weapons.size()) return;
-    requestDeveloperWeapon(weapons[size_t(selected)].id);
+    if (selected >= 0 && size_t(selected) < weapons.size()) requestDeveloperWeapon(weapons[size_t(selected)].id);
+    refresh();
+}
+
+void CheatsOverlay::restoreDefaults() {
+    requestDeveloperSpeed(1.f);
+    requestDeveloperInvincibility(false);
+    requestDeveloperNoclip(false);
+    requestDeveloperInfiniteAmmo(false);
+    requestDeveloperAimbot(false);
+    requestDeveloperEspBox(false);
+    requestDeveloperEspSkeleton(false);
+    if (setResolutionShortcut_) setResolutionShortcut_(false);
+    refresh();
+}
+
+void CheatsOverlay::command(int id, int notification) {
+    const bool clicked = notification == BN_CLICKED;
+    switch (id) {
+    case kSpeed:
+        if (notification == CBN_CLOSEUP || (notification == CBN_SELCHANGE && !dropDownOpen())) selectSpeed();
+        return;
+    case kInvincible: if (clicked) requestDeveloperInvincibility(checked(invincible_)); break;
+    case kNoclip: if (clicked) requestDeveloperNoclip(checked(noclip_)); break;
+    case kInfiniteAmmo: if (clicked) requestDeveloperInfiniteAmmo(checked(infiniteAmmo_)); break;
+    case kUnlock: if (clicked && developerSnapshot().hasActivePlayer) requestDeveloperUnlockDarkness(); break;
+    case kMaxDarkness: if (clicked && developerSnapshot().hasActivePlayer) requestDeveloperMaxDarkness(); break;
+    case kAimbot: if (clicked) requestDeveloperAimbot(checked(aimbot_)); break;
+    case kBox: if (clicked) requestDeveloperEspBox(checked(box_)); break;
+    case kSkeleton: if (clicked) requestDeveloperEspSkeleton(checked(skeleton_)); break;
+    case kWeapons: if (notification == LBN_DBLCLK) giveWeapon(); return;
+    case kGive: if (clicked) giveWeapon(); return;
+    case kLoad: if (clicked) loadMission(); return;
+    case kShortcut: if (clicked && setResolutionShortcut_) setResolutionShortcut_(checked(shortcut_)); break;
+    case kDefaults: if (clicked) restoreDefaults(); return;
+    case kProbe: if (clicked) requestDeveloperProbe(); break;
+    case IDCANCEL: close(); return;
+    default: return;
+    }
     refresh();
 }
 
@@ -196,23 +330,20 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
         FillRect(HDC(key), &area, background_);
         return 1;
     }
-    // Classic (unthemed) statics and check boxes take their colors from here.
-    if (message == WM_CTLCOLORSTATIC || message == WM_CTLCOLORBTN || message == WM_CTLCOLORLISTBOX) {
+    // Classic (unthemed) controls take their colors from here.
+    if (message == WM_CTLCOLORSTATIC || message == WM_CTLCOLORBTN) {
         const HDC dc = HDC(key);
         SetBkColor(dc, kBackground);
         SetTextColor(dc, IsWindowEnabled(HWND(detail)) ? kText : kDim);
         return LRESULT(background_);
     }
-    if (message == WM_COMMAND) {
-        if (LOWORD(key) == kInfiniteAmmo && HIWORD(key) == BN_CLICKED) selectInfiniteAmmo();
-        else if (LOWORD(key) == kEsp && HIWORD(key) == BN_CLICKED) selectEsp();
-        else if (LOWORD(key) == kAimbot && HIWORD(key) == BN_CLICKED) selectAimbot();
-        else if ((LOWORD(key) == kGive && HIWORD(key) == BN_CLICKED) ||
-                 (LOWORD(key) == kWeapons && HIWORD(key) == LBN_DBLCLK)) giveWeapon();
-        else if (LOWORD(key) == kProbe && HIWORD(key) == BN_CLICKED) { requestDeveloperProbe(); refresh(); }
-        else if (LOWORD(key) == IDCANCEL) close();
-        return 0;
+    if (message == WM_CTLCOLORLISTBOX || message == WM_CTLCOLOREDIT) {
+        const HDC dc = HDC(key);
+        SetBkColor(dc, kField);
+        SetTextColor(dc, kText);
+        return LRESULT(field_);
     }
+    if (message == WM_COMMAND) { command(LOWORD(key), HIWORD(key)); return 0; }
     if (message == WM_CLOSE) { close(); return 0; }
     if (message == WM_NCDESTROY) {
         setDeveloperToolsVisible(false);
@@ -221,7 +352,8 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
         const bool restoreFocus = foreground == closed || foreground == owner_;
         KillTimer(closed, kRefreshTimer);
         SetWindowLongPtrW(closed, GWLP_USERDATA, 0);
-        window_ = infiniteAmmo_ = esp_ = aimbot_ = weapons_ = give_ = status_ = nullptr;
+        window_ = speed_ = invincible_ = noclip_ = infiniteAmmo_ = unlock_ = maxDarkness_ = aimbot_ =
+            weapons_ = give_ = box_ = skeleton_ = mission_ = load_ = shortcut_ = defaults_ = status_ = nullptr;
         displayedStatus_.clear();
         releaseInputGate();
         if (restoreFocus && IsWindow(owner_)) SetFocus(owner_);

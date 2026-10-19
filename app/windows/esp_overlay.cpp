@@ -64,7 +64,7 @@ void EspOverlay::update() {
     if (now - lastPaint_ < 8) return;
     lastPaint_ = now;
     const auto view = developerEspSnapshot();
-    const bool visible = view.valid && view.esp && IsWindow(owner_) && !IsIconic(owner_);
+    const bool visible = view.valid && (view.box || view.skeleton) && IsWindow(owner_) && !IsIconic(owner_);
     if (!visible) {
         if (shown_) { ShowWindow(window_, SW_HIDE); shown_ = false; }
         return;
@@ -111,9 +111,9 @@ void EspOverlay::paint(HDC dc, int width, int height) {
         if (!(tall > 2) || tall > height * 2) continue;
         const float half = tall * 0.22f;
         const int left = int(feet.x - half), right = int(feet.x + half);
-        Rectangle(dc, left, int(head.y), right, int(feet.y));
+        if (view.box) Rectangle(dc, left, int(head.y), right, int(feet.y));
         SelectObject(dc, bonePen_);
-        for (const auto& bone : target.bones) {
+        if (view.skeleton) for (const auto& bone : target.bones) {
             const auto from = project(view, bone[0], bone[1], bone[2], width, height);
             const auto to = project(view, bone[3], bone[4], bone[5], width, height);
             if (!from.ok || !to.ok) continue;

@@ -60,7 +60,7 @@ void publish(uint64_t request, bool canLoad, bool hasPlayer, std::string_view st
     // hooks. A request arriving during that update must keep its next update.
     if (playerProcessed && requestRevision == request && state.playerSpeed == 1 &&
         !state.invincible && !state.noclip && !state.infiniteAmmo &&
-        !state.esp && !state.aimbot) playerToolsEnabled = false;
+        !state.espBox && !state.espSkeleton && !state.aimbot) playerToolsEnabled = false;
     refreshWorkLocked();
 }
 
@@ -146,9 +146,16 @@ void requestDeveloperInfiniteAmmo(bool enabled) {
     requested("Infinite ammo queued.");
 }
 
-void requestDeveloperEsp(bool enabled) {
+void requestDeveloperEspBox(bool enabled) {
     std::lock_guard lock(stateMutex);
-    state.esp = enabled;
+    state.espBox = enabled;
+    playerToolsEnabled = true;
+    requested("ESP queued.");
+}
+
+void requestDeveloperEspSkeleton(bool enabled) {
+    std::lock_guard lock(stateMutex);
+    state.espSkeleton = enabled;
     playerToolsEnabled = true;
     requested("ESP queued.");
 }
@@ -202,7 +209,7 @@ void resetDeveloperTools() {
 bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool missionReady) {
     std::optional<std::string> mission, weapon;
     float speed;
-    bool invincible, noclip, infiniteAmmo, esp, aimbot, enabled, unlockDarkness, maxDarkness, probe, overlay;
+    bool invincible, noclip, infiniteAmmo, espBox, espSkeleton, aimbot, enabled, unlockDarkness, maxDarkness, probe, overlay;
     uint64_t request;
     {
         std::lock_guard lock(stateMutex);
@@ -214,7 +221,8 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         invincible = state.invincible;
         noclip = state.noclip;
         infiniteAmmo = state.infiniteAmmo;
-        esp = state.esp;
+        espBox = state.espBox;
+        espSkeleton = state.espSkeleton;
         aimbot = state.aimbot;
         enabled = playerToolsEnabled;
         unlockDarkness = std::exchange(pendingDarknessUnlock, false);
@@ -244,9 +252,10 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         return canLoad;
     }
     const auto player = updateDeveloperPlayer(call, base, client, speed, invincible, enabled, noclip, infiniteAmmo);
+    const bool esp = espBox || espSkeleton;
     setSkeletonCapture((enabled && esp) || overlay);
     if (enabled && (esp || aimbot))
-        collectDeveloperEsp(call, base, client, resolveDeveloperPlayer(call, base, client), esp, aimbot);
+        collectDeveloperEsp(call, base, client, resolveDeveloperPlayer(call, base, client), espBox, espSkeleton, aimbot);
     else clearDeveloperEsp();
     if (probe) {
         dumpDeveloperProbe(call, base, client);
