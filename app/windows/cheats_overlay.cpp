@@ -12,8 +12,8 @@ using namespace DarkRecomp::Native;
 namespace {
 constexpr wchar_t kWindowClass[] = L"DarkRecompCheatsOverlay";
 constexpr UINT_PTR kRefreshTimer = 1;
-constexpr int kInfiniteAmmo = 2001, kWeapons = 2002, kGive = 2003, kProbe = 2004;
-constexpr int kWidth = 280, kHeight = 372, kMargin = 16;
+constexpr int kInfiniteAmmo = 2001, kWeapons = 2002, kGive = 2003, kProbe = 2004, kEsp = 2005, kAimbot = 2006;
+constexpr int kWidth = 280, kHeight = 428, kMargin = 16;
 constexpr BYTE kOpacity = 225;
 constexpr COLORREF kBackground = RGB(12, 12, 14), kText = RGB(230, 230, 230), kDim = RGB(150, 150, 150);
 
@@ -105,19 +105,23 @@ void CheatsOverlay::createControls() {
     control(window_, L"STATIC", L"CHEATS", 0, 14, 10, 200, 22, 0, titleFont_);
     infiniteAmmo_ = control(window_, L"BUTTON", L"INFINITE AMMO", BS_AUTOCHECKBOX | WS_TABSTOP,
                             14, 40, 250, 24, kInfiniteAmmo);
-    control(window_, L"STATIC", L"WEAPONS", 0, 14, 74, 252, 18);
+    esp_ = control(window_, L"BUTTON", L"ESP (BOXES ON ENEMIES)", BS_AUTOCHECKBOX | WS_TABSTOP,
+                   14, 66, 250, 24, kEsp);
+    aimbot_ = control(window_, L"BUTTON", L"AIMBOT (HOLD V OR MOUSE 4)", BS_AUTOCHECKBOX | WS_TABSTOP,
+                      14, 92, 250, 24, kAimbot);
+    control(window_, L"STATIC", L"WEAPONS", 0, 14, 130, 252, 18);
     weapons_ = control(window_, L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP | WS_BORDER,
-                       14, 94, 252, 180, kWeapons);
+                       14, 150, 252, 180, kWeapons);
     for (const auto& weapon : developerWeapons()) {
         std::wstring title(weapon.title.begin(), weapon.title.end());
         CharUpperBuffW(title.data(), DWORD(title.size()));
         SendMessageW(weapons_, LB_ADDSTRING, 0, LPARAM(title.c_str()));
     }
     SendMessageW(weapons_, LB_SETCURSEL, 0, 0);
-    give_ = control(window_, L"BUTTON", L"GIVE", BS_PUSHBUTTON | WS_TABSTOP, 14, 280, 90, 26, kGive);
-    control(window_, L"BUTTON", L"DUMP", BS_PUSHBUTTON | WS_TABSTOP, 176, 280, 90, 26, kProbe);
-    status_ = control(window_, L"STATIC", L"", SS_LEFT, 14, 312, 252, 34);
-    control(window_, L"STATIC", L"F7 OR ESC CLOSES. GIVEN WEAPONS MAY BE SAVED.", 0, 14, 348, 252, 18);
+    give_ = control(window_, L"BUTTON", L"GIVE", BS_PUSHBUTTON | WS_TABSTOP, 14, 336, 90, 26, kGive);
+    control(window_, L"BUTTON", L"DUMP", BS_PUSHBUTTON | WS_TABSTOP, 176, 336, 90, 26, kProbe);
+    status_ = control(window_, L"STATIC", L"", SS_LEFT, 14, 368, 252, 34);
+    control(window_, L"STATIC", L"F7 OR ESC CLOSES. GIVEN WEAPONS MAY BE SAVED.", 0, 14, 404, 252, 18);
 }
 
 void CheatsOverlay::refresh() {
@@ -125,6 +129,10 @@ void CheatsOverlay::refresh() {
     const auto snapshot = developerSnapshot();
     EnableWindow(infiniteAmmo_, snapshot.hasActivePlayer);
     EnableWindow(weapons_, snapshot.hasActivePlayer);
+    EnableWindow(esp_, snapshot.hasActivePlayer);
+    EnableWindow(aimbot_, snapshot.hasActivePlayer);
+    SendMessageW(esp_, BM_SETCHECK, snapshot.esp ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(aimbot_, BM_SETCHECK, snapshot.aimbot ? BST_CHECKED : BST_UNCHECKED, 0);
     EnableWindow(give_, snapshot.hasActivePlayer);
     SendMessageW(infiniteAmmo_, BM_SETCHECK, snapshot.infiniteAmmo ? BST_CHECKED : BST_UNCHECKED, 0);
     std::wstring status;
@@ -141,6 +149,16 @@ void CheatsOverlay::refresh() {
 
 void CheatsOverlay::selectInfiniteAmmo() {
     requestDeveloperInfiniteAmmo(SendMessageW(infiniteAmmo_, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    refresh();
+}
+
+void CheatsOverlay::selectEsp() {
+    requestDeveloperEsp(SendMessageW(esp_, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    refresh();
+}
+
+void CheatsOverlay::selectAimbot() {
+    requestDeveloperAimbot(SendMessageW(aimbot_, BM_GETCHECK, 0, 0) == BST_CHECKED);
     refresh();
 }
 
@@ -187,6 +205,8 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
     }
     if (message == WM_COMMAND) {
         if (LOWORD(key) == kInfiniteAmmo && HIWORD(key) == BN_CLICKED) selectInfiniteAmmo();
+        else if (LOWORD(key) == kEsp && HIWORD(key) == BN_CLICKED) selectEsp();
+        else if (LOWORD(key) == kAimbot && HIWORD(key) == BN_CLICKED) selectAimbot();
         else if ((LOWORD(key) == kGive && HIWORD(key) == BN_CLICKED) ||
                  (LOWORD(key) == kWeapons && HIWORD(key) == LBN_DBLCLK)) giveWeapon();
         else if (LOWORD(key) == kProbe && HIWORD(key) == BN_CLICKED) { requestDeveloperProbe(); refresh(); }
@@ -201,7 +221,7 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
         const bool restoreFocus = foreground == closed || foreground == owner_;
         KillTimer(closed, kRefreshTimer);
         SetWindowLongPtrW(closed, GWLP_USERDATA, 0);
-        window_ = infiniteAmmo_ = weapons_ = give_ = status_ = nullptr;
+        window_ = infiniteAmmo_ = esp_ = aimbot_ = weapons_ = give_ = status_ = nullptr;
         displayedStatus_.clear();
         releaseInputGate();
         if (restoreFocus && IsWindow(owner_)) SetFocus(owner_);

@@ -26,11 +26,13 @@ private:
     void refresh();
     void selectInfiniteAmmo();
     void giveWeapon();
+    void selectEsp();
+    void selectAimbot();
     void releaseInputGate();
 
     HWND owner_{};
     NativeMouseWindow& mouse_;
-    HWND window_{}, infiniteAmmo_{}, weapons_{}, give_{}, status_{};
+    HWND window_{}, infiniteAmmo_{}, esp_{}, aimbot_{}, weapons_{}, give_{}, status_{};
     HBRUSH background_{};
     HFONT titleFont_{};
     bool inputGate_ = false;

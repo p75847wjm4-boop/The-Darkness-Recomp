@@ -1,5 +1,6 @@
 #include "stall_profiler.h"
 #include "mouse_look.h"
+#include "developer_esp.h"
 #include "runtime.h"
 #include "ppc_recomp_shared.h"
 #include <bit>
@@ -119,12 +120,17 @@ PPC_FUNC(sub_823FC650) {
     }
     if (DarkRecomp::Native::nativeInput().completeLoadingMouseCapture() && probeEnabled())
         std::fprintf(stderr, "[MouseCaptureClientReady] tick=%llu client=%08X\n", GetTickCount64(), client);
-    if (!delta.x && !delta.y) return;
     const ScopedMathMode mathMode;
+    // Aimbot turns are already in look units and bypass sensitivity/invert.
+    int64_t aimYaw = 0, aimPitch = 0;
+    const bool aiming = DarkRecomp::Native::developerAimCorrection(aimYaw, aimPitch);
+    if (!delta.x && !delta.y && !aiming) return;
     // The sign of the original vertical sensitivity carries the invert option;
     // its magnitude must not reintroduce controller speed scaling.
     const float vertical = std::bit_cast<float>(PPC_LOAD_U32(client + 8840));
-    const auto packets = stream.quantizer.convert(delta, vertical < 0);
+    auto packets = stream.quantizer.convert(delta, vertical < 0);
+    if (aiming && packets.count < packets.packets.size())
+        packets.packets[packets.count++] = {int16_t(aimPitch), int16_t(aimYaw)};
     unsigned submitted = 0;
     int64_t pitchUnits = 0, yawUnits = 0;
     for (unsigned i = 0; i < packets.count; ++i) {

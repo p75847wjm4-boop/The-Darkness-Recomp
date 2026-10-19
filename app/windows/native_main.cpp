@@ -9,6 +9,7 @@
 #include "resource.h"
 #include "developer_tools_window.h"
 #include "cheats_overlay.h"
+#include "esp_overlay.h"
 #include "achievements_window.h"
 #include "developer_resolution_shortcut.h"
 #include "keyboard_settings.h"
@@ -369,6 +370,7 @@ int wmain(int argc, wchar_t** argv) {
             resolutionShortcut.setEnabled(enabled);
         }); developerToolsWindow = &developerTools;
         CheatsOverlay cheats(window, mouse); cheatsOverlay = &cheats;
+        EspOverlay esp(window);
         AchievementsWindow achievements(window, mouse); achievementsWindow = &achievements;
         ClearMouseWindow clearMouseWindow;
         puts("[Input] Native Win32 keyboard/raw mouse ready. Keyboard/mouse gameplay captures automatically after menus; click to recapture after manual release/Alt-Tab. Esc releases, F1 controls, F5 developer tools, F7 cheats; optional F6 720p/1440p shortcut starts disabled. WASD=move; E=use; R=reload; captured Space=jump; menu Space=confirm/skip.");
@@ -555,6 +557,7 @@ int wmain(int argc, wchar_t** argv) {
             {
                 StallProfiler::Scope update(StallProfiler::Section::Other, "native achievements update");
                 if (!developerTools.isOpen() && !cheats.isOpen() && !keyboardMenuInputBlocked()) achievements.update();
+                esp.update();
             }
             {
                 StallProfiler::Scope capture(StallProfiler::Section::Other, "native mouse capture update");
@@ -1054,6 +1057,7 @@ int wmain(int argc, wchar_t** argv) {
         sampler.stop();
         developerTools.close();
         cheats.close();
+        esp.close();
         achievements.close();
         endKeyboardMenu();
         mouse.release();

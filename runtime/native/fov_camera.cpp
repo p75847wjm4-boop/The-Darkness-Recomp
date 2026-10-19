@@ -1,5 +1,6 @@
 #include "stall_profiler.h"
 #include "developer_probe.h"
+#include "developer_esp.h"
 #include "fov_settings.h"
 #include "runtime.h"
 #include "ppc_recomp_shared.h"
@@ -191,8 +192,12 @@ PPC_FUNC(sub_8249A030) {
     if (configured == 0 && !probeEnabled()) {
         const auto client = ctx.r3.u32, viewport = ctx.r4.u32;
         __imp__sub_8249A030(ctx, base);
-        if (validSpan(client, 4) && (readWord(base, client) == kModClientVtable || readWord(base, client) == kP6ClientVtable))
+        if (validSpan(client, 4) && validSpan(viewport, 416) &&
+            (readWord(base, client) == kModClientVtable || readWord(base, client) == kP6ClientVtable) &&
+            static_cast<int32_t>(readWord(base, client + 8976)) < 0) {
             rememberGameplayViewport(client, viewport);
+            rememberGameplayFov(readFloat(base, viewport + kViewportFovOffset));
+        }
         return;
     }
     CameraQuery query{base, ctx.r3.u32, ctx.r4.u32, uint32_t(ctx.lr), configured};
@@ -219,6 +224,7 @@ PPC_FUNC(sub_8249A030) {
     const ScopedCameraQuery scope(query);
     __imp__sub_8249A030(ctx, base);
     rememberGameplayViewport(query.client, query.viewport);
+    rememberGameplayFov(readFloat(base, query.viewport + kViewportFovOffset));
     reportQuery(query);
 }
 

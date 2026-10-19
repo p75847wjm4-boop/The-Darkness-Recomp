@@ -5,6 +5,7 @@
 #include "developer_darkness.h"
 #include "developer_player_lookup.h"
 #include "developer_probe.h"
+#include "developer_esp.h"
 #include "ppc_recomp_shared.h"
 #include <algorithm>
 #include <array>
@@ -48,7 +49,8 @@ void publish(uint64_t request, bool canLoad, bool hasPlayer, std::string_view st
     state.hasActivePlayer = hasPlayer;
     if (playerApplied && status.empty() &&
         (state.status == "Player speed queued." || state.status == "Invincibility queued." ||
-         state.status == "Noclip queued." || state.status == "Infinite ammo queued."))
+         state.status == "Noclip queued." || state.status == "Infinite ammo queued." ||
+         state.status == "ESP queued." || state.status == "Aimbot queued."))
         status = "Player settings applied.";
     const bool statusChanged = requestRevision == request && !status.empty() && state.status != status;
     if (statusChanged) state.status = status;
@@ -56,7 +58,8 @@ void publish(uint64_t request, bool canLoad, bool hasPlayer, std::string_view st
     // Returning to defaults still needs one update to clear previously applied
     // hooks. A request arriving during that update must keep its next update.
     if (playerProcessed && requestRevision == request && state.playerSpeed == 1 &&
-        !state.invincible && !state.noclip && !state.infiniteAmmo) playerToolsEnabled = false;
+        !state.invincible && !state.noclip && !state.infiniteAmmo &&
+        !state.esp && !state.aimbot) playerToolsEnabled = false;
     refreshWorkLocked();
 }
 
@@ -142,6 +145,20 @@ void requestDeveloperInfiniteAmmo(bool enabled) {
     requested("Infinite ammo queued.");
 }
 
+void requestDeveloperEsp(bool enabled) {
+    std::lock_guard lock(stateMutex);
+    state.esp = enabled;
+    playerToolsEnabled = true;
+    requested("ESP queued.");
+}
+
+void requestDeveloperAimbot(bool enabled) {
+    std::lock_guard lock(stateMutex);
+    state.aimbot = enabled;
+    playerToolsEnabled = true;
+    requested("Aimbot queued.");
+}
+
 bool requestDeveloperWeapon(std::string_view id) {
     if (!weaponFor(id)) return false;
     std::lock_guard lock(stateMutex);
@@ -177,13 +194,14 @@ void resetDeveloperTools() {
     pendingDarknessUnlock = pendingDarknessLevel = pendingProbe = false;
     ++requestRevision;
     resetDeveloperPlayer();
+    collectDeveloperEsp(nullptr, {}, false, false);
     refreshWorkLocked();
 }
 
 bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool missionReady) {
     std::optional<std::string> mission, weapon;
     float speed;
-    bool invincible, noclip, infiniteAmmo, enabled, unlockDarkness, maxDarkness, probe;
+    bool invincible, noclip, infiniteAmmo, esp, aimbot, enabled, unlockDarkness, maxDarkness, probe;
     uint64_t request;
     {
         std::lock_guard lock(stateMutex);
@@ -195,6 +213,8 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         invincible = state.invincible;
         noclip = state.noclip;
         infiniteAmmo = state.infiniteAmmo;
+        esp = state.esp;
+        aimbot = state.aimbot;
         enabled = playerToolsEnabled;
         unlockDarkness = std::exchange(pendingDarknessUnlock, false);
         maxDarkness = std::exchange(pendingDarknessLevel, false);
@@ -213,6 +233,7 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
     _mm_setcsr(savedMath & ~(_MM_ROUND_MASK | _MM_FLUSH_ZERO_MASK | _MM_DENORMALS_ZERO_MASK));
     if (mission) {
         updateDeveloperPlayer(call, base, 0, 1, false, false);
+        collectDeveloperEsp(base, {}, false, false);
         std::string status;
         const bool loaded = canLoad && loadDeveloperMission(call, base, client, *mission, status);
         if (!canLoad) status = "Mission loading is unavailable. Try again when the main menu or game is ready.";
@@ -221,6 +242,9 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         return canLoad;
     }
     const auto player = updateDeveloperPlayer(call, base, client, speed, invincible, enabled, noclip, infiniteAmmo);
+    if (enabled && (esp || aimbot))
+        collectDeveloperEsp(base, resolveDeveloperPlayer(call, base, client), esp, aimbot);
+    else collectDeveloperEsp(base, {}, false, false);
     if (probe) {
         dumpDeveloperProbe(call, base, client);
         publish(request, canLoad, player.hasActivePlayer, "Probe written to the runtime log.", false, true);

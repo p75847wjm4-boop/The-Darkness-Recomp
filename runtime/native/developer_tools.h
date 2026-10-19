@@ -33,6 +33,8 @@ struct DeveloperSnapshot {
     bool invincible = false;
     bool noclip = false;
     bool infiniteAmmo = false;
+    bool esp = false;
+    bool aimbot = false;
     std::string status = "Waiting for the game.";
     uint64_t revision = 0;
 };
@@ -42,6 +44,8 @@ bool requestDeveloperSpeed(float multiplier);
 void requestDeveloperInvincibility(bool enabled);
 void requestDeveloperNoclip(bool enabled);
 void requestDeveloperInfiniteAmmo(bool enabled);
+void requestDeveloperEsp(bool enabled);
+void requestDeveloperAimbot(bool enabled);
 bool requestDeveloperWeapon(std::string_view id);
 void requestDeveloperProbe();
 void requestDeveloperUnlockDarkness();
