@@ -87,7 +87,7 @@ invincibility, noclip, all Darkness abilities and maximum Darkness level.
 Enable the F6 resolution shortcut there to allow live 720p/1440p switching;
 the shortcut starts off. Mission loading and Darkness grants can autosave;
 see [CONTROLS.md](CONTROLS.md#developer-tools) before changing progression.
-Press **F7** for the cheats overlay (infinite ammo); see [CONTROLS.md](CONTROLS.md#cheats).
+Press **F7** for the cheats overlay (infinite ammo, give weapons); see [CONTROLS.md](CONTROLS.md#cheats).
 Choose **Language** in **Options > Video Settings** or the settings launcher:
 System default, English, German, French, Spanish, or Italian. In-game changes
 take effect after restarting. See [CONTROLS.md](CONTROLS.md) for language overrides

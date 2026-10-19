@@ -218,6 +218,10 @@ Press **F7** to open or close the cheats overlay in the top-left corner of the
 game window. **Infinite ammo** stops the player's guns from using rounds, so the
 magazine never runs out and you never need to reload. NPC ammo is unchanged.
 If the magazine was already empty when you turned it on, reload once.
+**Weapons** lists the campaign guns. Select one and press **Give** (or
+double-click it) to add it to your inventory, then switch to it as usual.
+A weapon can only be given in a level that loads it; otherwise the overlay says
+it is not available here. Given weapons stay in your inventory and can be saved.
 Cheats last for the current session only and are never saved. Like the
 developer panel, the overlay blocks gameplay input while it is open; close it,
 then click the game or press F2 to resume mouse control. **Restore defaults** in

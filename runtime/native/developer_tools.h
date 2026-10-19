@@ -12,6 +12,12 @@ struct DeveloperMission {
     std::string_view title;
 };
 std::span<const DeveloperMission> developerMissions() noexcept;
+// Player campaign guns, by original RPG template name.
+struct DeveloperWeapon {
+    std::string_view id;
+    std::string_view title;
+};
+std::span<const DeveloperWeapon> developerWeapons() noexcept;
 void initializeDeveloperTools() noexcept;
 // The update boundary may avoid guest inspection while the panel is closed
 // and no requests or player overrides need work. This reads one atomic flag.
@@ -36,6 +42,7 @@ bool requestDeveloperSpeed(float multiplier);
 void requestDeveloperInvincibility(bool enabled);
 void requestDeveloperNoclip(bool enabled);
 void requestDeveloperInfiniteAmmo(bool enabled);
+bool requestDeveloperWeapon(std::string_view id);
 void requestDeveloperUnlockDarkness();
 void requestDeveloperMaxDarkness();
 void resetDeveloperTools();

@@ -388,6 +388,43 @@ bool grantAncientWeapons(PPCContext& ctx, uint8_t* base, const DeveloperPlayerHa
 }
 }
 
+DeveloperDarknessResult grantDeveloperWeapon(PPCContext& ctx, uint8_t* base,
+    const DeveloperPlayerHandles& player, std::string_view name, std::string_view title) {
+    const std::string label(title);
+    uint32_t inventory;
+    if (name.empty() || name.size() > 63 || !currentPlayer(base, player) ||
+        !inventoryReady(ctx, base, player, inventory))
+        return {false, "Weapon grants require an active player."};
+    // Guest copy of the template name, below the caller's frame.
+    auto frame = ctx;
+    frame.r1.u32 -= 0x100;
+    PPC_STORE_U32(frame.r1.u32, ctx.r1.u32);
+    const auto reference = frame.r1.u32 + 80, text = frame.r1.u32 + 96;
+    for (size_t i = 0; i < name.size(); ++i) PPC_STORE_U8(uint32_t(text + i), uint8_t(name[i]));
+    PPC_STORE_U8(uint32_t(text + name.size()), 0);
+    if (findItem(frame, base, inventory, text)) return {true, "You already have the " + label + "."};
+    // 823328E8 resolves RPGTEMPLATES_EVAL\<name> in this world's registry.
+    // A level that never loaded the template has no model or effects for it.
+    PPC_STORE_U32(reference, 0);
+    auto call = frame;
+    call.r3.u64 = reference; call.r4.u64 = text; call.r5.u64 = player.server;
+    PPCSafeIndirect(call, base, 0x823328E8);
+    const bool loaded = PPC_LOAD_U32(reference) != 0;
+    call = frame; call.r3.u64 = reference;
+    PPCSafeIndirect(call, base, 0x820CBBC8);
+    if (!loaded) return {false, "The " + label + " is not available in this level."};
+    call = frame;
+    call.r3.u64 = player.actor; call.r4.u64 = 0; call.r5.u64 = 0;
+    call.r6.u64 = text; call.r7.s64 = int16_t(PPC_LOAD_U16(player.actor + 368));
+    call.r8.u64 = 0; call.r9.u64 = 0;
+    PPCSafeIndirect(call, base, kGrantItem);
+    if (!currentPlayer(base, player) || !inventoryReady(ctx, base, player, inventory) ||
+        !findItem(frame, base, inventory, text))
+        return {false, "The " + label + " could not be granted here."};
+    std::fprintf(stderr, "[Weapons] Granted %.*s.\n", int(name.size()), name.data());
+    return {true, "Gave the " + label + ". Grants may be autosaved."};
+}
+
 DeveloperDarknessResult applyDeveloperDarkness(PPCContext& ctx, uint8_t* base,
     const DeveloperPlayerHandles& player, bool unlock, bool maximum, uint32_t client) {
     if (!unlock && !maximum) return {};

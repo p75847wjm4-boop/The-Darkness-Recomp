@@ -2,6 +2,7 @@
 #include "native_mouse.h"
 #include "runtime/native/developer_tools.h"
 #include "runtime/native/input.h"
+#include <string>
 #include <cstdio>
 #include <exception>
 #include <stdexcept>
@@ -11,8 +12,8 @@ using namespace DarkRecomp::Native;
 namespace {
 constexpr wchar_t kWindowClass[] = L"DarkRecompCheatsOverlay";
 constexpr UINT_PTR kRefreshTimer = 1;
-constexpr int kInfiniteAmmo = 2001;
-constexpr int kWidth = 280, kHeight = 132, kMargin = 16;
+constexpr int kInfiniteAmmo = 2001, kWeapons = 2002, kGive = 2003;
+constexpr int kWidth = 280, kHeight = 372, kMargin = 16;
 constexpr BYTE kOpacity = 225;
 constexpr COLORREF kBackground = RGB(12, 12, 14), kText = RGB(230, 230, 230), kDim = RGB(150, 150, 150);
 
@@ -104,17 +105,33 @@ void CheatsOverlay::createControls() {
     control(window_, L"STATIC", L"CHEATS", 0, 14, 10, 200, 22, 0, titleFont_);
     infiniteAmmo_ = control(window_, L"BUTTON", L"INFINITE AMMO", BS_AUTOCHECKBOX | WS_TABSTOP,
                             14, 40, 250, 24, kInfiniteAmmo);
-    status_ = control(window_, L"STATIC", L"", SS_LEFT, 14, 70, 252, 32);
-    control(window_, L"STATIC", L"F7 OR ESC CLOSES. SESSION ONLY.", 0, 14, 106, 252, 18);
+    control(window_, L"STATIC", L"WEAPONS", 0, 14, 74, 252, 18);
+    weapons_ = control(window_, L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP | WS_BORDER,
+                       14, 94, 252, 180, kWeapons);
+    for (const auto& weapon : developerWeapons()) {
+        std::wstring title(weapon.title.begin(), weapon.title.end());
+        CharUpperBuffW(title.data(), DWORD(title.size()));
+        SendMessageW(weapons_, LB_ADDSTRING, 0, LPARAM(title.c_str()));
+    }
+    SendMessageW(weapons_, LB_SETCURSEL, 0, 0);
+    give_ = control(window_, L"BUTTON", L"GIVE", BS_PUSHBUTTON | WS_TABSTOP, 14, 280, 90, 26, kGive);
+    status_ = control(window_, L"STATIC", L"", SS_LEFT, 14, 312, 252, 34);
+    control(window_, L"STATIC", L"F7 OR ESC CLOSES. GIVEN WEAPONS MAY BE SAVED.", 0, 14, 348, 252, 18);
 }
 
 void CheatsOverlay::refresh() {
     if (!window_ || !status_) return;
     const auto snapshot = developerSnapshot();
     EnableWindow(infiniteAmmo_, snapshot.hasActivePlayer);
+    EnableWindow(weapons_, snapshot.hasActivePlayer);
+    EnableWindow(give_, snapshot.hasActivePlayer);
     SendMessageW(infiniteAmmo_, BM_SETCHECK, snapshot.infiniteAmmo ? BST_CHECKED : BST_UNCHECKED, 0);
-    std::wstring status = !snapshot.hasActivePlayer ? L"AVAILABLE WHEN A PLAYER IS ACTIVE." :
-        snapshot.infiniteAmmo ? L"INFINITE AMMO ON." : L"READY.";
+    std::wstring status;
+    if (!snapshot.hasActivePlayer) status = L"AVAILABLE WHEN A PLAYER IS ACTIVE.";
+    else {
+        status.assign(snapshot.status.begin(), snapshot.status.end());
+        CharUpperBuffW(status.data(), DWORD(status.size()));
+    }
     if (status != displayedStatus_) {
         displayedStatus_ = std::move(status);
         SetWindowTextW(status_, displayedStatus_.c_str());
@@ -123,6 +140,14 @@ void CheatsOverlay::refresh() {
 
 void CheatsOverlay::selectInfiniteAmmo() {
     requestDeveloperInfiniteAmmo(SendMessageW(infiniteAmmo_, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    refresh();
+}
+
+void CheatsOverlay::giveWeapon() {
+    const auto selected = SendMessageW(weapons_, LB_GETCURSEL, 0, 0);
+    const auto weapons = developerWeapons();
+    if (selected < 0 || size_t(selected) >= weapons.size()) return;
+    requestDeveloperWeapon(weapons[size_t(selected)].id);
     refresh();
 }
 
@@ -153,7 +178,7 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
         return 1;
     }
     // Classic (unthemed) statics and check boxes take their colors from here.
-    if (message == WM_CTLCOLORSTATIC || message == WM_CTLCOLORBTN) {
+    if (message == WM_CTLCOLORSTATIC || message == WM_CTLCOLORBTN || message == WM_CTLCOLORLISTBOX) {
         const HDC dc = HDC(key);
         SetBkColor(dc, kBackground);
         SetTextColor(dc, IsWindowEnabled(HWND(detail)) ? kText : kDim);
@@ -161,6 +186,8 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
     }
     if (message == WM_COMMAND) {
         if (LOWORD(key) == kInfiniteAmmo && HIWORD(key) == BN_CLICKED) selectInfiniteAmmo();
+        else if ((LOWORD(key) == kGive && HIWORD(key) == BN_CLICKED) ||
+                 (LOWORD(key) == kWeapons && HIWORD(key) == LBN_DBLCLK)) giveWeapon();
         else if (LOWORD(key) == IDCANCEL) close();
         return 0;
     }
@@ -172,7 +199,7 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
         const bool restoreFocus = foreground == closed || foreground == owner_;
         KillTimer(closed, kRefreshTimer);
         SetWindowLongPtrW(closed, GWLP_USERDATA, 0);
-        window_ = infiniteAmmo_ = status_ = nullptr;
+        window_ = infiniteAmmo_ = weapons_ = give_ = status_ = nullptr;
         displayedStatus_.clear();
         releaseInputGate();
         if (restoreFocus && IsWindow(owner_)) SetFocus(owner_);

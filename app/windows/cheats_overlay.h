@@ -25,11 +25,12 @@ private:
     void createControls();
     void refresh();
     void selectInfiniteAmmo();
+    void giveWeapon();
     void releaseInputGate();
 
     HWND owner_{};
     NativeMouseWindow& mouse_;
-    HWND window_{}, infiniteAmmo_{}, status_{};
+    HWND window_{}, infiniteAmmo_{}, weapons_{}, give_{}, status_{};
     HBRUSH background_{};
     HFONT titleFont_{};
     bool inputGate_ = false;

@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 struct PPCContext;
 
@@ -18,4 +19,10 @@ struct DeveloperDarknessResult {
 // retain these grants, including a partial inventory grant if creation fails.
 DeveloperDarknessResult applyDeveloperDarkness(PPCContext& ctx, uint8_t* base,
     const DeveloperPlayerHandles& player, bool unlock, bool maximum, uint32_t client = 0);
+
+// One-shot grant of a single weapon template through the same original helper
+// as giveall. Only templates the current level has loaded are granted; the
+// resource registry stays frozen, so nothing is added that the client lacks.
+DeveloperDarknessResult grantDeveloperWeapon(PPCContext& ctx, uint8_t* base,
+    const DeveloperPlayerHandles& player, std::string_view name, std::string_view title);
 }

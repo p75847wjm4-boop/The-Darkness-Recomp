@@ -6,6 +6,7 @@
 #include "developer_player_lookup.h"
 #include "ppc_recomp_shared.h"
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <mutex>
@@ -17,6 +18,7 @@ namespace {
 std::mutex stateMutex;
 DeveloperSnapshot state;
 std::optional<std::string> pendingMission;
+std::optional<std::string> pendingWeapon;
 bool playerToolsEnabled = false;
 bool pendingDarknessUnlock = false;
 bool pendingDarknessLevel = false;
@@ -25,7 +27,7 @@ bool panelVisible = false;
 std::atomic<bool> needsUpdate{false};
 
 void refreshWorkLocked() {
-    needsUpdate.store(panelVisible || pendingMission.has_value() || playerToolsEnabled ||
+    needsUpdate.store(panelVisible || pendingMission.has_value() || pendingWeapon.has_value() || playerToolsEnabled ||
         pendingDarknessUnlock || pendingDarknessLevel, std::memory_order_release);
 }
 
@@ -55,7 +57,32 @@ void publish(uint64_t request, bool canLoad, bool hasPlayer, std::string_view st
         !state.invincible && !state.noclip && !state.infiniteAmmo) playerToolsEnabled = false;
     refreshWorkLocked();
 }
+
+// Template names from the retail level archives (Content/Xdf/*_Common.XDF).
+// NPC, multiplayer, scripted-scene and prop variants are omitted.
+constexpr std::array<DeveloperWeapon, 13> weapons{{
+    {"weapon_gun1911", "1911 pistol"},
+    {"weapon_revolver", "Revolver"},
+    {"weapon_gun_50cal", ".50 cal pistol"},
+    {"weapon_so2", "SO2 pistol"},
+    {"weapon_smg", "SMG"},
+    {"weapon_automatic", "Assault rifle"},
+    {"weapon_tactical", "Tactical rifle"},
+    {"weapon_shgcombat", "Combat shotgun"},
+    {"weapon_shgriot", "Riot shotgun"},
+    {"weapon_minigun", "Minigun"},
+    {"weapon_owrifle", "Otherworld rifle"},
+    {"weapon_ww1_rifle_01", "WW1 rifle"},
+    {"weapon_ww1_gun_mauser_01", "Mauser pistol"},
+}};
+
+const DeveloperWeapon* weaponFor(std::string_view id) {
+    const auto found = std::find_if(weapons.begin(), weapons.end(), [id](const auto& weapon) { return weapon.id == id; });
+    return found == weapons.end() ? nullptr : &*found;
 }
+}
+
+std::span<const DeveloperWeapon> developerWeapons() noexcept { return weapons; }
 
 bool developerToolsNeedsUpdate() noexcept {
     return needsUpdate.load(std::memory_order_acquire);
@@ -113,6 +140,14 @@ void requestDeveloperInfiniteAmmo(bool enabled) {
     requested("Infinite ammo queued.");
 }
 
+bool requestDeveloperWeapon(std::string_view id) {
+    if (!weaponFor(id)) return false;
+    std::lock_guard lock(stateMutex);
+    pendingWeapon = id;
+    requested("Weapon grant queued.");
+    return true;
+}
+
 void requestDeveloperUnlockDarkness() {
     std::lock_guard lock(stateMutex);
     pendingDarknessUnlock = true;
@@ -129,6 +164,7 @@ void resetDeveloperTools() {
     std::lock_guard lock(stateMutex);
     state = {};
     pendingMission.reset();
+    pendingWeapon.reset();
     playerToolsEnabled = false;
     pendingDarknessUnlock = pendingDarknessLevel = false;
     ++requestRevision;
@@ -137,7 +173,7 @@ void resetDeveloperTools() {
 }
 
 bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool missionReady) {
-    std::optional<std::string> mission;
+    std::optional<std::string> mission, weapon;
     float speed;
     bool invincible, noclip, infiniteAmmo, enabled, unlockDarkness, maxDarkness;
     uint64_t request;
@@ -145,6 +181,8 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         std::lock_guard lock(stateMutex);
         mission = std::move(pendingMission);
         pendingMission.reset();
+        weapon = std::move(pendingWeapon);
+        pendingWeapon.reset();
         speed = state.playerSpeed;
         invincible = state.invincible;
         noclip = state.noclip;
@@ -174,7 +212,12 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         return canLoad;
     }
     const auto player = updateDeveloperPlayer(call, base, client, speed, invincible, enabled, noclip, infiniteAmmo);
-    if (unlockDarkness || maxDarkness) {
+    if (weapon) {
+        const auto handles = resolveDeveloperPlayer(call, base, client);
+        const auto* entry = weaponFor(*weapon);
+        const auto granted = grantDeveloperWeapon(call, base, handles, entry->id, entry->title);
+        publish(request, canLoad, player.hasActivePlayer, granted.status, false, true);
+    } else if (unlockDarkness || maxDarkness) {
         const auto handles = resolveDeveloperPlayer(call, base, client);
         const auto darkness = applyDeveloperDarkness(call, base, handles, unlockDarkness, maxDarkness, client);
         publish(request, canLoad, player.hasActivePlayer, darkness.status, false, true);
