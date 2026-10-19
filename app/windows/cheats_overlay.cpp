@@ -22,7 +22,7 @@ constexpr UINT_PTR kRefreshTimer = 1;
 enum : int {
     kSpeed = 2001, kInvincible, kNoclip, kInfiniteAmmo, kUnlock, kMaxDarkness, kAimbot,
     kWeapons, kGive, kBox, kSkeleton, kMission, kLoad, kShortcut, kDefaults, kProbe,
-    kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov, kHealth, kSpawnName, kSpawn, kDistance, kMaxDistance
+    kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov, kHealth, kSpawnName, kSpawn, kDistance, kMaxDistance, kNames
 };
 constexpr int kWidth = 640, kHeight = 704;
 constexpr BYTE kOpacity = 235;
@@ -212,8 +212,9 @@ void CheatsOverlay::createControls() {
     boneColor_ = button(window_, L"", 482, 90, 132, kBoneColor);
     tracers_ = check(window_, L"TRACERS", 342, 122, 130, kTracers);
     tracerColor_ = button(window_, L"", 482, 120, 132, kTracerColor);
-    health_ = check(window_, L"HEALTH", 342, 152, 130, kHealth);
-    distance_ = check(window_, L"DISTANCE", 482, 152, 130, kDistance);
+    health_ = check(window_, L"HEALTH", 342, 152, 86, kHealth);
+    distance_ = check(window_, L"DISTANCE", 430, 152, 100, kDistance);
+    names_ = check(window_, L"NAMES", 534, 152, 84, kNames);
     control(window_, L"STATIC", L"OPACITY", 0, 342, 190, 64, 18);
     opacity_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 406, 186, 160, 26, kOpacitySlider);
     SendMessageW(opacity_, TBM_SETRANGE, FALSE, MAKELPARAM(20, 100));
@@ -376,6 +377,7 @@ void CheatsOverlay::command(int id, int notification) {
     case kFovCircle: if (clicked) espStyle().fovCircle = checked(fovCircle_); return;
     case kHealth: if (clicked) espStyle().health = checked(health_); return;
     case kDistance: if (clicked) espStyle().distance = checked(distance_); return;
+    case kNames: if (clicked) espStyle().names = checked(names_); return;
     case kSpawn: if (clicked) spawn(); return;
     case kWeapons: if (notification == LBN_DBLCLK) giveWeapon(); return;
     case kGive: if (clicked) giveWeapon(); return;
@@ -413,6 +415,7 @@ void CheatsOverlay::refreshStyle() {
     setCheck(fovCircle_, style.fovCircle);
     setCheck(health_, style.health);
     setCheck(distance_, style.distance);
+    setCheck(names_, style.names);
     SendMessageW(maxDistance_, TBM_SETPOS, TRUE, LPARAM(style.maxDistance));
     SetWindowTextW(maxDistanceValue_, rangeText(style.maxDistance).c_str());
     const float camera = fieldOfViewSetting();
@@ -498,7 +501,7 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
         window_ = speed_ = invincible_ = noclip_ = infiniteAmmo_ = unlock_ = maxDarkness_ = aimbot_ =
             weapons_ = give_ = box_ = skeleton_ = mission_ = load_ = shortcut_ = defaults_ = status_ =
             tracers_ = boxColor_ = boneColor_ = tracerColor_ = opacity_ = opacityValue_ = fov_ = fovValue_ =
-            fovCircle_ = cameraFov_ = cameraFovValue_ = health_ = distance_ = maxDistance_ = maxDistanceValue_ = spawn_ = spawnButton_ = nullptr;
+            fovCircle_ = cameraFov_ = cameraFovValue_ = health_ = distance_ = names_ = maxDistance_ = maxDistanceValue_ = spawn_ = spawnButton_ = nullptr;
         displayedStatus_.clear();
         releaseInputGate();
         if (restoreFocus && IsWindow(owner_)) SetFocus(owner_);

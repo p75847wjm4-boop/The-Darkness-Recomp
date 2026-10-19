@@ -230,7 +230,7 @@ press F2 to resume mouse control. Options last for this session only.
   A weapon can only be given in a level that loads it.
 - **Visuals:** **Box ESP**, **Skeleton ESP** and **Tracers** (lines from the
   bottom of the screen) draw over every living NPC the game is animating, even
-  through walls, with optional **Health** and **Distance** labels; **Range** hides targets farther than the chosen meters. Each color button cycles through eight
+  through walls, with optional **Health**, **Distance** and **Names** (the level designer's name, e.g. Mobster) labels; **Range** hides targets farther than the chosen meters. Each color button cycles through eight
   colors, and **Opacity** sets how see-through the drawing is. They include
   friendly and neutral characters.
 - **Spawn:** pick a character (gangsters, SWAT, civilians, WW1 soldiers or

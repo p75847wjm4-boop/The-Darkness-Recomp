@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 struct PPCContext;
@@ -16,6 +17,7 @@ struct EspTarget {
     std::vector<std::array<float, 6>> bones;
     bool hasHead = false;
     float head[3]{};
+    std::string name; // Designer name, e.g. "Mobster" for MOBSTER7; may be empty.
 };
 // The player's view, approximated from the client (rendered) player matrix
 // (rows: forward with pitch, left, up, position) plus the last camera FOV.

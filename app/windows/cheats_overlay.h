@@ -49,7 +49,7 @@ private:
     HWND window_{}, speed_{}, invincible_{}, noclip_{}, infiniteAmmo_{}, unlock_{}, maxDarkness_{},
          aimbot_{}, weapons_{}, give_{}, box_{}, skeleton_{}, mission_{}, load_{}, shortcut_{},
          defaults_{}, status_{}, tracers_{}, boxColor_{}, boneColor_{}, tracerColor_{}, opacity_{},
-         opacityValue_{}, fov_{}, fovValue_{}, fovCircle_{}, cameraFov_{}, cameraFovValue_{}, health_{}, distance_{}, maxDistance_{}, maxDistanceValue_{}, spawn_{}, spawnButton_{};
+         opacityValue_{}, fov_{}, fovValue_{}, fovCircle_{}, cameraFov_{}, cameraFovValue_{}, health_{}, distance_{}, names_{}, maxDistance_{}, maxDistanceValue_{}, spawn_{}, spawnButton_{};
     HBRUSH background_{}, field_{};
     HFONT titleFont_{};
     bool inputGate_ = false;

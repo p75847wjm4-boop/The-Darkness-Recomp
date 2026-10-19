@@ -3,6 +3,7 @@
 #include "runtime/native/developer_esp.h"
 #include <cmath>
 #include <cstdio>
+#include <string>
 
 using namespace DarkRecomp::Native;
 
@@ -163,6 +164,10 @@ void EspOverlay::paint(HDC dc, int width, int height) {
             length += swprintf_s(label + length, std::size(label) - length, L"%.0fm", meters);
         if (length > 0 && (view.box || view.skeleton))
             TextOutW(dc, left, int(head.y) - 14, label, length);
+        if (style.names && !target.name.empty() && (view.box || view.skeleton)) {
+            const std::wstring name(target.name.begin(), target.name.end());
+            TextOutW(dc, left, int(head.y) - (length > 0 ? 28 : 14), name.c_str(), int(name.size()));
+        }
     }
     SelectObject(dc, oldBrush);
     SelectObject(dc, oldPen);

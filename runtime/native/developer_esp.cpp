@@ -4,6 +4,7 @@
 #include "runtime.h"
 #include "ppc_recomp_shared.h"
 #include <algorithm>
+#include <cctype>
 #include <array>
 #include <atomic>
 #include <bit>
@@ -57,6 +58,28 @@ bool committed(uint8_t* base, uint32_t address, uint32_t size) {
     if (last > end) return false;
     regions.known[regions.next++ % regions.known.size()] = {begin, end};
     return true;
+}
+// Server CWObject +580 holds the designer name as a string object whose text
+// starts at +4 ("MOBSTER7"). Drop the instance number and title-case it.
+std::string objectName(uint8_t* base, uint32_t object) {
+    const auto text = PPC_LOAD_U32(object + 580);
+    if (!text || (text & 3) || !committed(base, text, 68)) return {};
+    std::string name;
+    for (uint32_t i = 0; i < 63; ++i) {
+        const auto c = char(PPC_LOAD_U8(text + 4 + i));
+        if (!c) break;
+        if (c < 32 || c > 126) return {};
+        name += c;
+    }
+    while (!name.empty() && (std::isdigit(static_cast<unsigned char>(name.back())) || name.back() == '_'))
+        name.pop_back();
+    bool start = true;
+    for (auto& c : name) {
+        if (c == '_') { c = ' '; start = true; continue; }
+        c = start ? char(std::toupper(static_cast<unsigned char>(c))) : char(std::tolower(static_cast<unsigned char>(c)));
+        start = false;
+    }
+    return name;
 }
 
 float f32(uint8_t* base, uint32_t address) { return std::bit_cast<float>(PPC_LOAD_U32(address)); }
@@ -221,6 +244,7 @@ void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
                     float rows[4][3];
                     if (!matrix(base, clientObject(ctx, base, client, id), rows)) continue;
                     EspTarget target{rows[3][0], rows[3][1], rows[3][2], hp, id};
+                    target.name = objectName(base, object);
                     // With ESP on, show only characters the game animated this
                     // frame: their skeleton root sits exactly at the origin.
                     if (esp) {

@@ -15,6 +15,7 @@ struct EspStyle {
     bool fovCircle = false;
     bool health = true;
     bool distance = true;
+    bool names = true;
     // Meters; kAllDistances shows every target.
     static constexpr int kAllDistances = 200;
     int maxDistance = kAllDistances;
