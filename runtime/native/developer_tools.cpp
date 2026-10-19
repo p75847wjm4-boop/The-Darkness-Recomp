@@ -92,13 +92,19 @@ const DeveloperWeapon* weaponFor(std::string_view id) {
 std::span<const DeveloperWeapon> developerWeapons() noexcept { return weapons; }
 
 namespace {
-// Retail giveall's darkling list (82A472C0).
-constexpr std::array<std::string_view, 15> spawnSuggestions{
-    "ai_darkling_berserker", "ai_darkling_gunner", "ai_darkling_kamikaze", "ai_darkling_lightkiller",
+// Generic characters from the global GameContext_Create.XDF first, then the
+// darklings the summon power uses (names from the level archives).
+constexpr std::array<std::string_view, 30> spawnSuggestions{
+    "ai_badguy_standard", "ai_badguy_leader", "ai_toughguy_standard", "ai_meatface_standard",
+    "ai_police_swat", "ai_police_swat_weak", "ai_civ_standard",
+    "ai_soldier_german", "ai_ow_soldier_leader", "ai_ow_soldier_allied", "ai_ow_soldier_standard_nightvision",
+    "ai_darkling_berserker1", "ai_darkling_berserker2", "ai_darkling_berserker3", "ai_darkling_berserker4",
+    "ai_darkling_gunner", "ai_darkling_kamikaze", "ai_darkling_lightkiller",
     "ai_darkling_berserker_axe", "ai_darkling_berserker_bat", "ai_darkling_berserker_brokensword",
     "ai_darkling_berserker_demolitionhammer", "ai_darkling_berserker_golfdriver",
     "ai_darkling_berserker_hammer", "ai_darkling_berserker_informer", "ai_darkling_berserker_katana",
-    "ai_darkling_berserker_machete", "ai_darkling_berserker_pistol", "ai_darkling_berserker_saw"};
+    "ai_darkling_berserker_machete", "ai_darkling_berserker_pistol", "ai_darkling_berserker_saw",
+    "ai_darklingguide"};
 }
 
 std::span<const std::string_view> developerSpawnSuggestions() noexcept { return spawnSuggestions; }

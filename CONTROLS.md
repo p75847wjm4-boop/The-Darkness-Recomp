@@ -233,7 +233,8 @@ press F2 to resume mouse control. Options last for this session only.
   through walls, with optional **Health numbers**. Each color button cycles through eight
   colors, and **Opacity** sets how see-through the drawing is. They include
   friendly and neutral characters.
-- **Spawn:** pick a darkling or type any template name and press **Spawn** to
+- **Spawn:** pick a character (gangsters, SWAT, civilians, WW1 soldiers or
+  darklings) or type any template name and press **Spawn** to
   create it 96 units in front of you. Only templates the current level has
   loaded can spawn. `python tools\list_weapon_templates.py --npcs` lists the
   NPC templates in each level.
