@@ -123,7 +123,7 @@ PPC_FUNC(sub_823FC650) {
     const ScopedMathMode mathMode;
     // Aimbot turns are already in look units and bypass sensitivity/invert.
     int64_t aimYaw = 0, aimPitch = 0;
-    const bool aiming = DarkRecomp::Native::developerAimCorrection(aimYaw, aimPitch);
+    const bool aiming = DarkRecomp::Native::developerAimCorrection(ctx, base, client, aimYaw, aimPitch);
     if (!delta.x && !delta.y && !aiming) return;
     // The sign of the original vertical sensitivity carries the invert option;
     // its magnitude must not reintroduce controller speed scaling.

@@ -73,6 +73,49 @@ bool foreground() {
     GetWindowThreadProcessId(GetForegroundWindow(), &process);
     return process == GetCurrentProcessId();
 }
+
+// Original client actor lookup (both client tables' virtual +284), including
+// predicted objects. Null for objects the client has not spawned.
+uint32_t clientObject(PPCContext& ctx, uint8_t* base, uint32_t client, uint32_t id) {
+    auto call = ctx;
+    call.r3.u64 = client; call.r4.u64 = id;
+    sub_8249D618(call, base);
+    return call.r3.u32;
+}
+
+bool clientClient(uint8_t* base, uint32_t client) {
+    if (!committed(base, client, 8980)) return false;
+    const auto table = PPC_LOAD_U32(client);
+    return (table == 0x820807E0 || table == 0x82081BF0) && !(PPC_LOAD_U32(client + 516) & 0x20);
+}
+
+bool matrix(uint8_t* base, uint32_t object, float (&rows)[4][3]) {
+    if (!committed(base, object, kMatrix + 64)) return false;
+    for (int row = 0; row < 4; ++row)
+        for (int i = 0; i < 3; ++i) {
+            rows[row][i] = f32(base, object + kMatrix + row * 16 + i * 4);
+            if (!std::isfinite(rows[row][i])) return false;
+        }
+    const float length = rows[0][0] * rows[0][0] + rows[0][1] * rows[0][1] + rows[0][2] * rows[0][2];
+    return length > 0.8f && length < 1.2f;
+}
+
+bool clientView(PPCContext& ctx, uint8_t* base, uint32_t client, EspSnapshot& view) {
+    if (!clientClient(base, client)) return false;
+    const auto playerId = PPC_LOAD_U32(client + 536);
+    if (!playerId || playerId > 0xffff) return false;
+    float rows[4][3];
+    if (!matrix(base, clientObject(ctx, base, client, playerId), rows)) return false;
+    for (int i = 0; i < 3; ++i) {
+        view.forward[i] = rows[0][i]; view.left[i] = rows[1][i];
+        view.up[i] = rows[2][i]; view.eye[i] = rows[3][i];
+    }
+    view.eye[2] += kEyeHeight;
+    const float fov = std::bit_cast<float>(fovBits.load(std::memory_order_relaxed));
+    view.tanHalfVertical = std::tan(fov * 3.14159265f / 360) * 0.75f;
+    return true;
+}
+std::atomic<uint32_t> lockedTarget{0};
 }
 
 void rememberGameplayFov(float degrees) noexcept {
@@ -80,36 +123,26 @@ void rememberGameplayFov(float degrees) noexcept {
         fovBits.store(std::bit_cast<uint32_t>(degrees), std::memory_order_relaxed);
 }
 
-void collectDeveloperEsp(uint8_t* base, const DeveloperPlayerHandles& player, bool esp, bool aimbot) {
+void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
+                         const DeveloperPlayerHandles& player, bool esp, bool aimbot) {
     aimEnabled.store(aimbot, std::memory_order_release);
     regions = {}; // Allocations may have been released since the last update.
     EspSnapshot next;
-    if ((esp || aimbot) && player.actor && player.server && committed(base, player.actor, 1024)) {
-        const auto m = player.actor + kMatrix;
-        for (int i = 0; i < 3; ++i) {
-            next.forward[i] = f32(base, m + i * 4);
-            next.left[i] = f32(base, m + 16 + i * 4);
-            next.up[i] = f32(base, m + 32 + i * 4);
-            next.eye[i] = f32(base, m + 48 + i * 4);
-        }
-        next.eye[2] += kEyeHeight;
-        const float fov = std::bit_cast<float>(fovBits.load(std::memory_order_relaxed));
-        next.tanHalfVertical = std::tan(fov * 3.14159265f / 360) * 0.75f;
+    if ((esp || aimbot) && player.actor && player.server && clientView(ctx, base, client, next)) {
         next.esp = esp;
         const auto objects = PPC_LOAD_U32(player.server + 1460);
         if (committed(base, objects, 28)) {
             const auto count = PPC_LOAD_U32(objects + 4), items = PPC_LOAD_U32(objects + 24);
             if (count <= 16384 && committed(base, items, count * 4)) {
-                for (uint32_t id = 0; id < count; ++id) {
+                for (uint32_t id = 1; id < count; ++id) {
                     const auto object = PPC_LOAD_U32(items + id * 4);
                     if (object == player.actor || !committed(base, object, 660) ||
                         PPC_LOAD_U32(object) != kNpcVtable) continue;
                     int hp = 0;
                     if (!health(base, object, hp) || hp <= 0) continue;
-                    EspTarget target{f32(base, object + kMatrix + 48), f32(base, object + kMatrix + 52),
-                                     f32(base, object + kMatrix + 56), hp};
-                    if (std::isfinite(target.x) && std::isfinite(target.y) && std::isfinite(target.z))
-                        next.targets.push_back(target);
+                    float rows[4][3];
+                    if (!matrix(base, clientObject(ctx, base, client, id), rows)) continue;
+                    next.targets.push_back({rows[3][0], rows[3][1], rows[3][2], hp, id});
                 }
             }
         }
@@ -119,32 +152,60 @@ void collectDeveloperEsp(uint8_t* base, const DeveloperPlayerHandles& player, bo
     current = std::move(next);
 }
 
+void clearDeveloperEsp() noexcept {
+    aimEnabled.store(false, std::memory_order_release);
+    lockedTarget.store(0, std::memory_order_relaxed);
+    std::lock_guard lock(snapshotMutex);
+    current = {};
+}
+
 EspSnapshot developerEspSnapshot() {
     std::lock_guard lock(snapshotMutex);
     return current;
 }
 
-bool developerAimCorrection(int64_t& yawUnits, int64_t& pitchUnits) {
+bool developerAimCorrection(PPCContext& ctx, uint8_t* base, uint32_t client,
+                            int64_t& yawUnits, int64_t& pitchUnits) {
     if (!aimEnabled.load(std::memory_order_acquire) || !foreground() ||
-        !((GetAsyncKeyState('V') | GetAsyncKeyState(VK_XBUTTON1)) & 0x8000)) return false;
-    const auto view = developerEspSnapshot();
-    if (!view.valid) return false;
-    const float* f = view.forward;
-    float best = kAimCone, dx = 0, dy = 0, dz = 0;
-    for (const auto& target : view.targets) {
-        const float x = target.x - view.eye[0], y = target.y - view.eye[1], z = target.z + kAimHeight - view.eye[2];
-        const float length = std::sqrt(x * x + y * y + z * z);
-        if (length < 1 || length > kAimRange) continue;
-        const float angle = std::acos(std::clamp((x * f[0] + y * f[1] + z * f[2]) / length, -1.0f, 1.0f));
-        if (angle < best) { best = angle; dx = x; dy = y; dz = z; }
+        !((GetAsyncKeyState('V') | GetAsyncKeyState(VK_XBUTTON1)) & 0x8000)) {
+        lockedTarget.store(0, std::memory_order_relaxed);
+        return false;
     }
-    if (best >= kAimCone) return false;
+    const auto targets = developerEspSnapshot().targets;
+    regions = {};
+    EspSnapshot view;
+    if (targets.empty() || !clientView(ctx, base, client, view)) return false;
+    const float* f = view.forward;
+    const auto direction = [&](const EspTarget& target, float& x, float& y, float& z) {
+        x = target.x - view.eye[0]; y = target.y - view.eye[1]; z = target.z + kAimHeight - view.eye[2];
+        const float length = std::sqrt(x * x + y * y + z * z);
+        if (length < 1 || length > kAimRange) return 10.0f;
+        return std::acos(std::clamp((x * f[0] + y * f[1] + z * f[2]) / length, -1.0f, 1.0f));
+    };
+    // Keep the current target while it stays alive and in the cone, so nearby
+    // NPCs cannot pull the view back and forth between frames.
+    const EspTarget* chosen = nullptr;
+    float best = kAimCone, dx = 0, dy = 0, dz = 0;
+    const auto locked = lockedTarget.load(std::memory_order_relaxed);
+    for (const auto& target : targets) {
+        float x, y, z;
+        const float angle = direction(target, x, y, z);
+        if (target.id == locked && angle < kAimCone * 1.5f) { chosen = &target; dx = x; dy = y; dz = z; break; }
+        if (angle < best) { best = angle; chosen = &target; dx = x; dy = y; dz = z; }
+    }
+    if (!chosen) { lockedTarget.store(0, std::memory_order_relaxed); return false; }
+    lockedTarget.store(chosen->id, std::memory_order_relaxed);
     const double yawError = std::remainder(std::atan2(dy, dx) - std::atan2(f[1], f[0]), 2 * 3.14159265358979);
     const double pitchError = std::atan2(dz, std::hypot(dx, dy)) - std::asin(std::clamp(f[2], -1.0f, 1.0f));
-    // Ease in over several ticks; positive guest yaw turns right (clockwise, Z up).
-    constexpr double smoothing = 0.4, limit = 3000;
-    yawUnits = int64_t(std::clamp(-yawError * kUnitsPerRadian * smoothing, -limit, limit));
-    pitchUnits = int64_t(std::clamp(pitchError * kUnitsPerRadian * smoothing, -limit, limit));
+    // The client applies a look packet on its next update, so correct only part
+    // of the error per call and stop inside a small dead zone.
+    constexpr double gain = 0.2, limit = 1500, deadZone = 0.004;
+    const auto step = [&](double error) {
+        if (std::abs(error) < deadZone) return int64_t(0);
+        return int64_t(std::clamp(error * kUnitsPerRadian * gain, -limit, limit));
+    };
+    yawUnits = -step(yawError); // Positive guest yaw turns right (clockwise, Z up).
+    pitchUnits = step(pitchError);
     return yawUnits || pitchUnits;
 }
 }

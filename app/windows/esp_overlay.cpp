@@ -25,7 +25,20 @@ Point project(const EspSnapshot& view, float x, float y, float z, int width, int
 
 EspOverlay::~EspOverlay() { close(); }
 
+void EspOverlay::releaseBuffer() {
+    if (buffer_) {
+        SelectObject(buffer_, previousBitmap_);
+        DeleteDC(buffer_);
+    }
+    if (bitmap_) DeleteObject(bitmap_);
+    buffer_ = nullptr; bitmap_ = nullptr; previousBitmap_ = nullptr;
+    bufferWidth_ = bufferHeight_ = 0;
+}
+
 void EspOverlay::close() {
+    releaseBuffer();
+    if (pen_) DeleteObject(pen_);
+    pen_ = nullptr;
     if (window_ && IsWindow(window_)) DestroyWindow(window_);
     window_ = nullptr;
     shown_ = false;
@@ -46,7 +59,7 @@ bool EspOverlay::create() {
 
 void EspOverlay::update() {
     const auto now = GetTickCount64();
-    if (now - lastPaint_ < 33) return;
+    if (now - lastPaint_ < 8) return;
     lastPaint_ = now;
     const auto view = developerEspSnapshot();
     const bool visible = view.valid && view.esp && IsWindow(owner_) && !IsIconic(owner_);
@@ -65,14 +78,15 @@ void EspOverlay::update() {
                  SWP_NOACTIVATE | SWP_NOZORDER | (shown_ ? 0 : SWP_SHOWWINDOW));
     shown_ = true;
     const HDC screen = GetDC(window_);
-    const HDC memory = CreateCompatibleDC(screen);
-    const HBITMAP bitmap = CreateCompatibleBitmap(screen, width, height);
-    const auto previous = SelectObject(memory, bitmap);
-    paint(memory, width, height);
-    BitBlt(screen, 0, 0, width, height, memory, 0, 0, SRCCOPY);
-    SelectObject(memory, previous);
-    DeleteObject(bitmap);
-    DeleteDC(memory);
+    if (!buffer_ || bufferWidth_ != width || bufferHeight_ != height) {
+        releaseBuffer();
+        buffer_ = CreateCompatibleDC(screen);
+        bitmap_ = CreateCompatibleBitmap(screen, width, height);
+        previousBitmap_ = SelectObject(buffer_, bitmap_);
+        bufferWidth_ = width; bufferHeight_ = height;
+    }
+    paint(buffer_, width, height);
+    BitBlt(screen, 0, 0, width, height, buffer_, 0, 0, SRCCOPY);
     ReleaseDC(window_, screen);
 }
 
@@ -80,8 +94,8 @@ void EspOverlay::paint(HDC dc, int width, int height) {
     RECT all{0, 0, width, height};
     FillRect(dc, &all, HBRUSH(GetStockObject(BLACK_BRUSH)));
     const auto view = developerEspSnapshot();
-    const HPEN pen = CreatePen(PS_SOLID, 2, kBox);
-    const auto oldPen = SelectObject(dc, pen);
+    if (!pen_) pen_ = CreatePen(PS_SOLID, 2, kBox);
+    const auto oldPen = SelectObject(dc, pen_);
     const auto oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, kText);
@@ -101,7 +115,6 @@ void EspOverlay::paint(HDC dc, int width, int height) {
     }
     SelectObject(dc, oldBrush);
     SelectObject(dc, oldPen);
-    DeleteObject(pen);
 }
 
 LRESULT CALLBACK EspOverlay::windowProc(HWND window, UINT message, WPARAM key, LPARAM detail) {

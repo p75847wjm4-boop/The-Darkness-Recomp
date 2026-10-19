@@ -11,7 +11,7 @@ public:
     EspOverlay(const EspOverlay&) = delete;
     EspOverlay& operator=(const EspOverlay&) = delete;
 
-    // Call every display-loop iteration; repaints at most ~30 times a second.
+    // Call every display-loop iteration; repaints at most ~120 times a second.
     void update();
     void close();
 
@@ -20,7 +20,14 @@ private:
     bool create();
     void paint(HDC dc, int width, int height);
 
+    void releaseBuffer();
+
     HWND owner_{}, window_{};
+    HDC buffer_{};
+    HBITMAP bitmap_{};
+    HGDIOBJ previousBitmap_{};
+    HPEN pen_{};
+    int bufferWidth_ = 0, bufferHeight_ = 0;
     ULONGLONG lastPaint_ = 0;
     bool shown_ = false;
 };

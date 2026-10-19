@@ -194,7 +194,7 @@ void resetDeveloperTools() {
     pendingDarknessUnlock = pendingDarknessLevel = pendingProbe = false;
     ++requestRevision;
     resetDeveloperPlayer();
-    collectDeveloperEsp(nullptr, {}, false, false);
+    clearDeveloperEsp();
     refreshWorkLocked();
 }
 
@@ -233,7 +233,7 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
     _mm_setcsr(savedMath & ~(_MM_ROUND_MASK | _MM_FLUSH_ZERO_MASK | _MM_DENORMALS_ZERO_MASK));
     if (mission) {
         updateDeveloperPlayer(call, base, 0, 1, false, false);
-        collectDeveloperEsp(base, {}, false, false);
+        clearDeveloperEsp();
         std::string status;
         const bool loaded = canLoad && loadDeveloperMission(call, base, client, *mission, status);
         if (!canLoad) status = "Mission loading is unavailable. Try again when the main menu or game is ready.";
@@ -243,8 +243,8 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
     }
     const auto player = updateDeveloperPlayer(call, base, client, speed, invincible, enabled, noclip, infiniteAmmo);
     if (enabled && (esp || aimbot))
-        collectDeveloperEsp(base, resolveDeveloperPlayer(call, base, client), esp, aimbot);
-    else collectDeveloperEsp(base, {}, false, false);
+        collectDeveloperEsp(call, base, client, resolveDeveloperPlayer(call, base, client), esp, aimbot);
+    else clearDeveloperEsp();
     if (probe) {
         dumpDeveloperProbe(call, base, client);
         publish(request, canLoad, player.hasActivePlayer, "Probe written to the runtime log.", false, true);

@@ -68,6 +68,28 @@ void dumpDeveloperProbe(PPCContext& ctx, uint8_t* base, uint32_t client) {
             dumpCount, id, object, PPC_LOAD_U32(object), PPC_LOAD_U16(object + 368), PPC_LOAD_U16(object + 370),
             PPC_LOAD_U32(object + 396), f32(base, object + 128), f32(base, object + 132), f32(base, object + 136));
     }
+    // Skeleton research: the nearest spawned NPC's client object, plus the
+    // objects its first pointers reference (bone matrices live off-object).
+    uint32_t nearest = 0; float best = 1e30f;
+    const float px = f32(base, player.actor + 64), py = f32(base, player.actor + 68);
+    for (uint32_t id = 1; id < count; ++id) {
+        const auto object = PPC_LOAD_U32(items + id * 4);
+        if (!readable(base, object, 640) || PPC_LOAD_U32(object) != 0x820626C8) continue;
+        const float dx = f32(base, object + 64) - px, dy = f32(base, object + 68) - py;
+        auto call = ctx; call.r3.u64 = client; call.r4.u64 = id;
+        sub_8249D618(call, base);
+        if (call.r3.u32 && dx * dx + dy * dy < best) { best = dx * dx + dy * dy; nearest = call.r3.u32; }
+    }
+    if (nearest) {
+        block(base, "npcclient", nearest, 2048);
+        for (uint32_t offset = 0; offset < 2048; offset += 4) {
+            const auto pointer = PPC_LOAD_U32(nearest + offset);
+            if (pointer >= 0x40000000 && pointer < 0xF0000000 && !(pointer & 15) && readable(base, pointer, 512)) {
+                const std::string label = "npcref+" + std::to_string(offset);
+                block(base, label.c_str(), pointer, 512);
+            }
+        }
+    }
     std::fprintf(stderr, "[Probe %u] end\n", dumpCount);
 }
 }
