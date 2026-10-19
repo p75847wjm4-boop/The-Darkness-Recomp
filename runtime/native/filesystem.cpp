@@ -3,6 +3,7 @@
 #include "objects.h"
 #include "storage.h"
 #include "file_query_compat.h"
+#include "developer_tools.h"
 #include "renderer/engine/engine_performance.h"
 #include <winternl.h>
 #include <algorithm>
@@ -162,6 +163,8 @@ PathResult resolve(uint32_t attributes) {
         // NtCreateFile consumes NT paths and does not accept Win32's '/' alias.
         result.path.make_preferred();
     }
+    if (!result.status && !result.writable)
+        noteDeveloperArchive(result.path.filename().string());
     if (!result.status && !result.writable) {
         auto cached = memory->developerWeaponFile(result.path);
         std::error_code error;

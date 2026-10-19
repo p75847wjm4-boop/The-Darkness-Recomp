@@ -276,6 +276,8 @@ void CheatsOverlay::refresh() {
     setCheck(tracers_, snapshot.espTracers);
     setCheck(shortcut_, resolutionShortcut_ && resolutionShortcut_());
     std::wstring status = upper(snapshot.status);
+    if (!snapshot.level.empty())
+        status = L"LEVEL: " + upper(snapshot.level) + L"\n" + status;
     if (!player) status += L"\nPLAYER OPTIONS BECOME AVAILABLE WHEN A PLAYER IS ACTIVE.";
     if (status != displayedStatus_) {
         displayedStatus_ = std::move(status);

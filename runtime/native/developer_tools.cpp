@@ -65,6 +65,22 @@ void publish(uint64_t request, bool canLoad, bool hasPlayer, std::string_view st
     refreshWorkLocked();
 }
 
+} // namespace
+
+void noteDeveloperArchive(std::string_view fileName) {
+    constexpr std::string_view suffix = "_common.xdf";
+    if (fileName.size() <= suffix.size()) return;
+    const auto tail = fileName.substr(fileName.size() - suffix.size());
+    if (!std::equal(tail.begin(), tail.end(), suffix.begin(),
+                    [](char a, char b) { return (a >= 'A' && a <= 'Z' ? char(a + 32) : a) == b; })) return;
+    const std::string level(fileName.substr(0, fileName.size() - suffix.size()));
+    std::lock_guard lock(stateMutex);
+    if (state.level == level) return;
+    state.level = level;
+    ++state.revision;
+}
+
+namespace {
 // Template names from the retail level archives (Content/Xdf/*_Common.XDF).
 // NPC, multiplayer, scripted-scene and prop variants are omitted.
 constexpr std::array<DeveloperWeapon, 13> weapons{{

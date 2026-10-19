@@ -37,10 +37,13 @@ struct DeveloperSnapshot {
     bool espSkeleton = false;
     bool espTracers = false;
     bool aimbot = false;
+    std::string level;  // Last level archive opened, e.g. NY1_Chinatown.
     std::string status = "Waiting for the game.";
     uint64_t revision = 0;
 };
 DeveloperSnapshot developerSnapshot();
+// Called for each opened file; records <level>_Common.XDF as the current level.
+void noteDeveloperArchive(std::string_view fileName);
 bool requestDeveloperMission(std::string_view id);
 bool requestDeveloperSpeed(float multiplier);
 void requestDeveloperInvincibility(bool enabled);
