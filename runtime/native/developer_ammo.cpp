@@ -112,7 +112,15 @@ PPC_FUNC(sub_822C26C8) {
         if (rapidFire.load(std::memory_order_relaxed)) ctx.r5.u64 = 0;
         if (noRecoil.load(std::memory_order_relaxed)) { ctx.f1.f64 = 0; ctx.f2.f64 = 0; }
     }
+    const auto weapon = ctx.r3.u32;
     __imp__sub_822C26C8(ctx, base);
+    if (mine && rapidFire.load(std::memory_order_relaxed)) PPC_STORE_U32(weapon + 556, 0);
+    if (inventory && logged.load(std::memory_order_relaxed) <= 40) {
+        const auto savedMath = _mm_getcsr();
+        std::fprintf(stderr, "[WeaponMods] after weapon=%08X next=%u result=%u\n", weapon,
+                     PPC_LOAD_U32(weapon + 556), ctx.r3.u32);
+        _mm_setcsr(savedMath);
+    }
 }
 
 // Original 82332428(ammo, rounds): take = min(loaded, rounds), draw take from the
