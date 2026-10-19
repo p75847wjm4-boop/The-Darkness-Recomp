@@ -232,11 +232,7 @@ void CheatsOverlay::createControls() {
     // Editable: pick a darkling or type any template name from the level.
     spawn_ = control(window_, L"COMBOBOX", L"", CBS_DROPDOWN | CBS_AUTOHSCROLL | CBS_NOINTEGRALHEIGHT |
                      WS_VSCROLL | WS_TABSTOP, 342, 374, 272, 320, kSpawnName);
-    for (const auto name : developerSpawnSuggestions()) {
-        const std::wstring text(name.begin(), name.end());
-        SendMessageW(spawn_, CB_ADDSTRING, 0, LPARAM(text.c_str()));
-    }
-    SendMessageW(spawn_, CB_SETCURSEL, 0, 0);
+    fillSpawnList({});
     spawnButton_ = button(window_, L"SPAWN", 342, 408, 90, kSpawn);
     control(window_, L"STATIC", L"OR TYPE A TEMPLATE NAME.", 0, 440, 412, 176, 18);
 
@@ -250,6 +246,21 @@ void CheatsOverlay::createControls() {
     control(window_, L"STATIC", L"F7 OR ESC CLOSES. MISSION LOADS, DARKNESS GRANTS AND GIVEN WEAPONS MAY AUTOSAVE.",
             0, 330, 652, 296, 44);
     refreshStyle();
+}
+
+// Suggestions minus templates a spawn showed this level cannot fully load.
+void CheatsOverlay::fillSpawnList(const std::vector<std::string>& unavailable) {
+    shownUnavailable_ = unavailable;
+    wchar_t typed[64]{};
+    GetWindowTextW(spawn_, typed, int(std::size(typed)));
+    SendMessageW(spawn_, CB_RESETCONTENT, 0, 0);
+    for (const auto name : developerSpawnSuggestions()) {
+        if (std::find(unavailable.begin(), unavailable.end(), name) != unavailable.end()) continue;
+        const std::wstring text(name.begin(), name.end());
+        SendMessageW(spawn_, CB_ADDSTRING, 0, LPARAM(text.c_str()));
+    }
+    const auto found = SendMessageW(spawn_, CB_FINDSTRINGEXACT, WPARAM(-1), LPARAM(typed));
+    SendMessageW(spawn_, CB_SETCURSEL, found == CB_ERR ? 0 : found, 0);
 }
 
 void CheatsOverlay::refresh() {
@@ -267,6 +278,7 @@ void CheatsOverlay::refresh() {
         const auto speed = std::find(kSpeeds.begin(), kSpeeds.end(), snapshot.playerSpeed);
         SendMessageW(speed_, CB_SETCURSEL, speed == kSpeeds.end() ? -1 : speed - kSpeeds.begin(), 0);
     }
+    if (snapshot.unavailableSpawns != shownUnavailable_ && !dropDownOpen()) fillSpawnList(snapshot.unavailableSpawns);
     setCheck(invincible_, snapshot.invincible);
     setCheck(noclip_, snapshot.noclip);
     setCheck(infiniteAmmo_, snapshot.infiniteAmmo);

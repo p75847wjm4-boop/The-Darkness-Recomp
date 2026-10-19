@@ -1,4 +1,5 @@
 #include "developer_darkness.h"
+#include "developer_tools.h"
 #include "developer_player_lookup.h"
 #include "runtime.h"
 #include "ppc_recomp_shared.h"
@@ -475,9 +476,23 @@ DeveloperDarknessResult spawnDeveloperObject(PPCContext& ctx, uint8_t* base,
     call.r3.u64 = player.server; call.r4.u64 = text; call.r5.u64 = matrix;
     call.r6.s64 = int16_t(PPC_LOAD_U16(player.actor + 368));
     call.r7.u64 = 0; call.r8.u64 = 0; call.r9.s64 = -1; call.r10.u64 = 0;
+    beginDeveloperSpawnWatch();
     PPCSafeIndirect(call, base, create);
+    const auto missing = endDeveloperSpawnWatch();
     const auto id = call.r3.s32;
     if (id <= 0) return {false, "Could not spawn " + label + ". The game has no template with that name here."};
+    if (!missing.empty()) {
+        // The level never loaded some of its models (e.g. a body part), so it
+        // would appear incomplete. Remove it like sv_objdestroy: virtual +600.
+        for (const auto& file : missing) std::fprintf(stderr, "[Spawn] %s needs missing %s\n", label.c_str(), file.c_str());
+        if (const auto destroy = method(base, player.server, 600)) {
+            call = frame;
+            call.r3.u64 = player.server; call.r4.u64 = uint32_t(id); call.r5.u64 = 0;
+            PPCSafeIndirect(call, base, destroy);
+        }
+        markDeveloperSpawnUnavailable(label);
+        return {false, label + " needs models this level doesn't have, so it was removed and hidden from the list."};
+    }
     // New model/animation IDs exist only in the server table until mirrored and
     // precached on the client; otherwise newly loaded body parts are invisible.
     const bool mirrored = clientResources(ctx, base, player, client, resources, {});

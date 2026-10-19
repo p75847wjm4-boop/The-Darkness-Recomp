@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <functional>
 #include <string>
+#include <vector>
 
 class NativeMouseWindow;
 
@@ -28,6 +29,7 @@ private:
     bool open();
     void createControls();
     void refresh();
+    void fillSpawnList(const std::vector<std::string>& unavailable);
     void command(int id, int notification);
     void selectSpeed();
     void loadMission();
@@ -52,4 +54,5 @@ private:
     HFONT titleFont_{};
     bool inputGate_ = false;
     std::wstring displayedStatus_;
+    std::vector<std::string> shownUnavailable_;
 };

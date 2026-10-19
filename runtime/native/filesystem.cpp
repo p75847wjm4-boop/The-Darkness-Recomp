@@ -257,6 +257,14 @@ PPC_FUNC(__imp__NtQueryFullAttributesFile) {
             memory->write32(out + 48, *reinterpret_cast<uint32_t*>(result + 48));
         }
     }
+    if ((status == 0xc0000034 || status == 0xc000003a) && !resolved.path.empty()) {
+        auto relative = resolved.path.lexically_relative(memory->gameDirectory()).string();
+        for (char& c : relative) {
+            if (c == '/') c = '\\';
+            if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+        }
+        noteDeveloperMissingFile(relative);
+    }
     if (FileTraceEnabled() || int32_t(status) < 0)
         fprintf(stderr, "[File] attributes '%ls' status=0x%08X\n", resolved.path.c_str(), status);
     ctx.r3.u64 = status;

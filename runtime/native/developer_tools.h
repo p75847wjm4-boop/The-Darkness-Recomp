@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <vector>
 #include <string_view>
 
 struct PPCContext;
@@ -38,12 +39,21 @@ struct DeveloperSnapshot {
     bool espTracers = false;
     bool aimbot = false;
     std::string level;  // Last level archive opened, e.g. NY1_Chinatown.
+    // Spawn templates found to need models the current level lacks.
+    std::vector<std::string> unavailableSpawns;
     std::string status = "Waiting for the game.";
     uint64_t revision = 0;
 };
 DeveloperSnapshot developerSnapshot();
 // Called for each opened file; records <level>_Common.XDF as the current level.
 void noteDeveloperArchive(std::string_view fileName);
+// While a spawn is being created, the file layer reports model files the
+// level cannot supply (game-relative, lowercase). The spawn then marks its
+// template unavailable for this level.
+void noteDeveloperMissingFile(std::string_view relativePath);
+void beginDeveloperSpawnWatch();
+std::vector<std::string> endDeveloperSpawnWatch();
+void markDeveloperSpawnUnavailable(std::string_view templateName);
 bool requestDeveloperMission(std::string_view id);
 bool requestDeveloperSpeed(float multiplier);
 void requestDeveloperInvincibility(bool enabled);

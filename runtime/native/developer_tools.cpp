@@ -12,6 +12,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -65,7 +66,39 @@ void publish(uint64_t request, bool canLoad, bool hasPlayer, std::string_view st
     refreshWorkLocked();
 }
 
+std::mutex spawnWatchMutex;
+std::atomic<bool> spawnWatching{false};
+std::vector<std::string> spawnMissing;
+std::map<std::string, std::vector<std::string>> unavailableByLevel;
 } // namespace
+
+void noteDeveloperMissingFile(std::string_view relativePath) {
+    if (!spawnWatching.load(std::memory_order_acquire)) return;
+    constexpr std::string_view models = "content\\models\\";
+    if (!relativePath.starts_with(models) || relativePath == "content\\models\\coordsys.xmd" ||
+        relativePath == "content\\models\\.xmd") return;
+    std::lock_guard lock(spawnWatchMutex);
+    if (std::find(spawnMissing.begin(), spawnMissing.end(), relativePath) == spawnMissing.end())
+        spawnMissing.emplace_back(relativePath);
+}
+void beginDeveloperSpawnWatch() {
+    std::lock_guard lock(spawnWatchMutex);
+    spawnMissing.clear();
+    spawnWatching.store(true, std::memory_order_release);
+}
+std::vector<std::string> endDeveloperSpawnWatch() {
+    std::lock_guard lock(spawnWatchMutex);
+    spawnWatching.store(false, std::memory_order_release);
+    return std::move(spawnMissing);
+}
+void markDeveloperSpawnUnavailable(std::string_view templateName) {
+    std::lock_guard lock(stateMutex);
+    auto& names = unavailableByLevel[state.level];
+    if (std::find(names.begin(), names.end(), templateName) != names.end()) return;
+    names.emplace_back(templateName);
+    state.unavailableSpawns = names;
+    ++state.revision;
+}
 
 void noteDeveloperArchive(std::string_view fileName) {
     constexpr std::string_view suffix = "_common.xdf";
@@ -77,6 +110,7 @@ void noteDeveloperArchive(std::string_view fileName) {
     std::lock_guard lock(stateMutex);
     if (state.level == level) return;
     state.level = level;
+    state.unavailableSpawns = unavailableByLevel[level];
     ++state.revision;
 }
 
