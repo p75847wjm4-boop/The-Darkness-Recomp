@@ -20,7 +20,8 @@ struct EspTarget {
 // The player's view, approximated from the client (rendered) player matrix
 // (rows: forward with pitch, left, up, position) plus the last camera FOV.
 struct EspSnapshot {
-    bool valid = false, box = false, skeleton = false;
+    bool valid = false, box = false, skeleton = false, tracers = false, aimbot = false;
+    float aimFovDegrees = 25;
     float eye[3]{}, forward[3]{}, left[3]{}, up[3]{};
     float tanHalfVertical = 0.525f;
     std::vector<EspTarget> targets;
@@ -30,7 +31,10 @@ struct EspSnapshot {
 // objects that also exist on the client (spawned and replicated), with their
 // client positions; clears the snapshot when disabled.
 void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
-                         const DeveloperPlayerHandles& player, bool box, bool skeleton, bool aimbot);
+                         const DeveloperPlayerHandles& player, bool box, bool skeleton, bool tracers,
+                         bool aimbot);
+// Aimbot cone, full angle in degrees (5..90).
+void setDeveloperAimFov(float degrees) noexcept;
 EspSnapshot developerEspSnapshot();
 void clearDeveloperEsp() noexcept;
 // Guest camera FOV (degrees, 4:3 horizontal reference) after 8249A030.

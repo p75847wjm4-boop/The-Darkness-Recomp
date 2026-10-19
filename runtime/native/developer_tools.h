@@ -35,6 +35,7 @@ struct DeveloperSnapshot {
     bool infiniteAmmo = false;
     bool espBox = false;
     bool espSkeleton = false;
+    bool espTracers = false;
     bool aimbot = false;
     std::string status = "Waiting for the game.";
     uint64_t revision = 0;
@@ -47,6 +48,7 @@ void requestDeveloperNoclip(bool enabled);
 void requestDeveloperInfiniteAmmo(bool enabled);
 void requestDeveloperEspBox(bool enabled);
 void requestDeveloperEspSkeleton(bool enabled);
+void requestDeveloperEspTracers(bool enabled);
 void requestDeveloperAimbot(bool enabled);
 bool requestDeveloperWeapon(std::string_view id);
 void requestDeveloperProbe();

@@ -1,5 +1,8 @@
 #include "cheats_overlay.h"
+#include "esp_style.h"
 #include "native_mouse.h"
+#include "runtime/native/developer_esp.h"
+#include <commctrl.h>
 #include "runtime/native/developer_tools.h"
 #include "runtime/native/input.h"
 #include <algorithm>
@@ -17,9 +20,10 @@ constexpr wchar_t kWindowClass[] = L"DarkRecompCheatsOverlay";
 constexpr UINT_PTR kRefreshTimer = 1;
 enum : int {
     kSpeed = 2001, kInvincible, kNoclip, kInfiniteAmmo, kUnlock, kMaxDarkness, kAimbot,
-    kWeapons, kGive, kBox, kSkeleton, kMission, kLoad, kShortcut, kDefaults, kProbe
+    kWeapons, kGive, kBox, kSkeleton, kMission, kLoad, kShortcut, kDefaults, kProbe,
+    kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle
 };
-constexpr int kWidth = 640, kHeight = 524;
+constexpr int kWidth = 640, kHeight = 600;
 constexpr BYTE kOpacity = 235;
 constexpr COLORREF kBackground = RGB(12, 12, 14), kField = RGB(28, 28, 32),
                    kText = RGB(230, 230, 230), kDim = RGB(140, 140, 140);
@@ -103,6 +107,8 @@ bool CheatsOverlay::open() {
     mouse_.release();
     nativeInput().setSettingsOpen(true);
     inputGate_ = true;
+    INITCOMMONCONTROLSEX common{sizeof(common), ICC_BAR_CLASSES};
+    InitCommonControlsEx(&common);
     if (!background_) background_ = CreateSolidBrush(kBackground);
     if (!field_) field_ = CreateSolidBrush(kField);
     if (!titleFont_) titleFont_ = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
@@ -166,49 +172,64 @@ void CheatsOverlay::createControls() {
     control(window_, L"STATIC", L"SPEED", 0, 26, 64, 60, 18);
     speed_ = control(window_, L"COMBOBOX", L"", comboStyle, 90, 60, 130, 240, kSpeed);
     for (const auto* name : kSpeedNames) SendMessageW(speed_, CB_ADDSTRING, 0, LPARAM(name));
-    invincible_ = check(window_, L"INVINCIBLE", 26, 94, 130, kInvincible);
+    invincible_ = check(window_, L"GOD MODE", 26, 94, 130, kInvincible);
     noclip_ = check(window_, L"NOCLIP", 166, 94, 130, kNoclip);
     infiniteAmmo_ = check(window_, L"INFINITE AMMO", 26, 120, 270, kInfiniteAmmo);
     unlock_ = button(window_, L"UNLOCK ALL DARKNESS", 26, 154, 134, kUnlock);
     maxDarkness_ = button(window_, L"MAX DARKNESS LEVEL", 168, 154, 134, kMaxDarkness);
 
-    group(window_, L"AIM", 12, 220, 304, 52);
+    group(window_, L"AIM", 12, 220, 304, 108);
     aimbot_ = check(window_, L"AIMBOT (HOLD V OR MOUSE 4)", 26, 242, 280, kAimbot);
+    control(window_, L"STATIC", L"FOV", 0, 26, 272, 40, 18);
+    fov_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 64, 268, 190, 26, kFov);
+    SendMessageW(fov_, TBM_SETRANGE, FALSE, MAKELPARAM(5, 90));
+    fovValue_ = control(window_, L"STATIC", L"", 0, 258, 272, 50, 18);
+    fovCircle_ = check(window_, L"SHOW FOV CIRCLE", 26, 298, 270, kFovCircle);
 
-    group(window_, L"WEAPONS", 12, 280, 304, 232);
+    group(window_, L"WEAPONS", 12, 336, 304, 252);
     weapons_ = control(window_, L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP | WS_BORDER,
-                       26, 300, 276, 170, kWeapons);
+                       26, 356, 276, 190, kWeapons);
     for (const auto& weapon : developerWeapons()) {
         std::wstring title(weapon.title.begin(), weapon.title.end());
         CharUpperBuffW(title.data(), DWORD(title.size()));
         SendMessageW(weapons_, LB_ADDSTRING, 0, LPARAM(title.c_str()));
     }
     SendMessageW(weapons_, LB_SETCURSEL, 0, 0);
-    give_ = button(window_, L"GIVE", 26, 476, 90, kGive);
+    give_ = button(window_, L"GIVE", 26, 552, 90, kGive);
 
     // Right column: visuals, mission, settings, status.
-    group(window_, L"VISUALS", 328, 40, 300, 80);
-    box_ = check(window_, L"BOX ESP", 342, 62, 270, kBox);
-    skeleton_ = check(window_, L"SKELETON ESP", 342, 88, 270, kSkeleton);
+    group(window_, L"VISUALS", 328, 40, 300, 176);
+    box_ = check(window_, L"BOX ESP", 342, 62, 130, kBox);
+    boxColor_ = button(window_, L"", 482, 60, 132, kBoxColor);
+    skeleton_ = check(window_, L"SKELETON ESP", 342, 92, 130, kSkeleton);
+    boneColor_ = button(window_, L"", 482, 90, 132, kBoneColor);
+    tracers_ = check(window_, L"TRACERS", 342, 122, 130, kTracers);
+    tracerColor_ = button(window_, L"", 482, 120, 132, kTracerColor);
+    control(window_, L"STATIC", L"OPACITY", 0, 342, 162, 64, 18);
+    opacity_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 406, 158, 160, 26, kOpacitySlider);
+    SendMessageW(opacity_, TBM_SETRANGE, FALSE, MAKELPARAM(20, 100));
+    opacityValue_ = control(window_, L"STATIC", L"", 0, 570, 162, 50, 18);
+    control(window_, L"STATIC", L"COLOR BUTTONS CYCLE THROUGH 8 COLORS.", 0, 342, 190, 276, 18);
 
-    group(window_, L"MISSION", 328, 128, 300, 92);
-    mission_ = control(window_, L"COMBOBOX", L"", comboStyle, 342, 150, 272, 320, kMission);
+    group(window_, L"MISSION", 328, 224, 300, 92);
+    mission_ = control(window_, L"COMBOBOX", L"", comboStyle, 342, 246, 272, 320, kMission);
     for (const auto& item : developerMissions()) {
         const auto title = upper(item.title);
         SendMessageW(mission_, CB_ADDSTRING, 0, LPARAM(title.c_str()));
     }
     SendMessageW(mission_, CB_SETCURSEL, 0, 0);
-    load_ = button(window_, L"LOAD", 342, 184, 90, kLoad);
+    load_ = button(window_, L"LOAD", 342, 280, 90, kLoad);
 
-    group(window_, L"SETTINGS", 328, 228, 300, 92);
-    shortcut_ = check(window_, L"ENABLE F6 RESOLUTION SHORTCUT", 342, 250, 276, kShortcut);
-    defaults_ = button(window_, L"RESTORE DEFAULTS", 342, 282, 140, kDefaults);
-    button(window_, L"DUMP", 492, 282, 122, kProbe);
+    group(window_, L"SETTINGS", 328, 324, 300, 92);
+    shortcut_ = check(window_, L"ENABLE F6 RESOLUTION SHORTCUT", 342, 346, 276, kShortcut);
+    defaults_ = button(window_, L"RESTORE DEFAULTS", 342, 378, 140, kDefaults);
+    button(window_, L"DUMP", 492, 378, 122, kProbe);
 
-    control(window_, L"STATIC", L"STATUS", 0, 330, 332, 296, 18);
-    status_ = control(window_, L"STATIC", L"", SS_LEFT, 330, 352, 296, 96);
+    control(window_, L"STATIC", L"STATUS", 0, 330, 428, 296, 18);
+    status_ = control(window_, L"STATIC", L"", SS_LEFT, 330, 448, 296, 88);
     control(window_, L"STATIC", L"F7 OR ESC CLOSES. MISSION LOADS, DARKNESS GRANTS AND GIVEN WEAPONS MAY AUTOSAVE.",
-            0, 330, 456, 296, 52);
+            0, 330, 540, 296, 48);
+    refreshStyle();
 }
 
 void CheatsOverlay::refresh() {
@@ -216,7 +237,7 @@ void CheatsOverlay::refresh() {
     const auto snapshot = developerSnapshot();
     const bool player = snapshot.hasActivePlayer;
     for (const HWND control : {speed_, invincible_, noclip_, infiniteAmmo_, unlock_, maxDarkness_, aimbot_,
-                               weapons_, give_, box_, skeleton_})
+                               weapons_, give_, box_, skeleton_, tracers_})
         EnableWindow(control, player);
     EnableWindow(mission_, snapshot.canLoadMission);
     EnableWindow(load_, snapshot.canLoadMission);
@@ -232,6 +253,7 @@ void CheatsOverlay::refresh() {
     setCheck(aimbot_, snapshot.aimbot);
     setCheck(box_, snapshot.espBox);
     setCheck(skeleton_, snapshot.espSkeleton);
+    setCheck(tracers_, snapshot.espTracers);
     setCheck(shortcut_, resolutionShortcut_ && resolutionShortcut_());
     std::wstring status = upper(snapshot.status);
     if (!player) status += L"\nPLAYER OPTIONS BECOME AVAILABLE WHEN A PLAYER IS ACTIVE.";
@@ -274,6 +296,10 @@ void CheatsOverlay::restoreDefaults() {
     requestDeveloperAimbot(false);
     requestDeveloperEspBox(false);
     requestDeveloperEspSkeleton(false);
+    requestDeveloperEspTracers(false);
+    espStyle() = {};
+    setDeveloperAimFov(espStyle().aimFov);
+    refreshStyle();
     if (setResolutionShortcut_) setResolutionShortcut_(false);
     refresh();
 }
@@ -292,6 +318,11 @@ void CheatsOverlay::command(int id, int notification) {
     case kAimbot: if (clicked) requestDeveloperAimbot(checked(aimbot_)); break;
     case kBox: if (clicked) requestDeveloperEspBox(checked(box_)); break;
     case kSkeleton: if (clicked) requestDeveloperEspSkeleton(checked(skeleton_)); break;
+    case kTracers: if (clicked) requestDeveloperEspTracers(checked(tracers_)); break;
+    case kBoxColor: if (clicked) cycleColor(espStyle().box, boxColor_, L"BOX"); return;
+    case kBoneColor: if (clicked) cycleColor(espStyle().bone, boneColor_, L"BONES"); return;
+    case kTracerColor: if (clicked) cycleColor(espStyle().tracer, tracerColor_, L"LINES"); return;
+    case kFovCircle: if (clicked) espStyle().fovCircle = checked(fovCircle_); return;
     case kWeapons: if (notification == LBN_DBLCLK) giveWeapon(); return;
     case kGive: if (clicked) giveWeapon(); return;
     case kLoad: if (clicked) loadMission(); return;
@@ -302,6 +333,40 @@ void CheatsOverlay::command(int id, int notification) {
     default: return;
     }
     refresh();
+}
+
+void CheatsOverlay::cycleColor(unsigned& index, HWND button, const wchar_t*) {
+    index = (index + 1) % unsigned(EspStyle::palette.size());
+    refreshStyle();
+    InvalidateRect(button, nullptr, TRUE);
+}
+
+void CheatsOverlay::refreshStyle() {
+    const auto& style = espStyle();
+    const auto label = [](HWND button, const wchar_t* name, unsigned index) {
+        const std::wstring text = std::wstring(name) + L": " + EspStyle::paletteNames[index % 8];
+        SetWindowTextW(button, text.c_str());
+    };
+    label(boxColor_, L"BOX", style.box);
+    label(boneColor_, L"BONES", style.bone);
+    label(tracerColor_, L"LINES", style.tracer);
+    SendMessageW(opacity_, TBM_SETPOS, TRUE, LPARAM(style.opacity * 100 / 255));
+    SendMessageW(fov_, TBM_SETPOS, TRUE, LPARAM(style.aimFov));
+    setCheck(fovCircle_, style.fovCircle);
+    SetWindowTextW(opacityValue_, (std::to_wstring(style.opacity * 100 / 255) + L"%").c_str());
+    SetWindowTextW(fovValue_, (std::to_wstring(int(style.aimFov)) + L"\u00B0").c_str());
+}
+
+void CheatsOverlay::slider(HWND control) {
+    auto& style = espStyle();
+    const auto position = int(SendMessageW(control, TBM_GETPOS, 0, 0));
+    if (control == opacity_) style.opacity = BYTE(std::clamp(position, 20, 100) * 255 / 100);
+    else if (control == fov_) {
+        style.aimFov = float(std::clamp(position, 5, 90));
+        setDeveloperAimFov(style.aimFov);
+    } else return;
+    SetWindowTextW(opacityValue_, (std::to_wstring(style.opacity * 100 / 255) + L"%").c_str());
+    SetWindowTextW(fovValue_, (std::to_wstring(int(style.aimFov)) + L"\u00B0").c_str());
 }
 
 LRESULT CALLBACK CheatsOverlay::windowProc(HWND window, UINT message, WPARAM key, LPARAM detail) {
@@ -344,6 +409,7 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
         return LRESULT(field_);
     }
     if (message == WM_COMMAND) { command(LOWORD(key), HIWORD(key)); return 0; }
+    if (message == WM_HSCROLL && detail) { slider(HWND(detail)); return 0; }
     if (message == WM_CLOSE) { close(); return 0; }
     if (message == WM_NCDESTROY) {
         setDeveloperToolsVisible(false);
@@ -353,7 +419,9 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
         KillTimer(closed, kRefreshTimer);
         SetWindowLongPtrW(closed, GWLP_USERDATA, 0);
         window_ = speed_ = invincible_ = noclip_ = infiniteAmmo_ = unlock_ = maxDarkness_ = aimbot_ =
-            weapons_ = give_ = box_ = skeleton_ = mission_ = load_ = shortcut_ = defaults_ = status_ = nullptr;
+            weapons_ = give_ = box_ = skeleton_ = mission_ = load_ = shortcut_ = defaults_ = status_ =
+            tracers_ = boxColor_ = boneColor_ = tracerColor_ = opacity_ = opacityValue_ = fov_ = fovValue_ =
+            fovCircle_ = nullptr;
         displayedStatus_.clear();
         releaseInputGate();
         if (restoreFocus && IsWindow(owner_)) SetFocus(owner_);

@@ -1,4 +1,5 @@
 #include "esp_overlay.h"
+#include "esp_style.h"
 #include "runtime/native/developer_esp.h"
 #include <cmath>
 #include <cstdio>
@@ -7,8 +8,7 @@ using namespace DarkRecomp::Native;
 
 namespace {
 constexpr wchar_t kWindowClass[] = L"DarkRecompEspOverlay";
-constexpr COLORREF kKey = RGB(0, 0, 0), kBox = RGB(255, 40, 40), kText = RGB(255, 230, 230),
-                   kBone = RGB(255, 255, 255);
+constexpr COLORREF kKey = RGB(0, 0, 0);
 constexpr float kBodyHeight = 62;
 
 struct Point { float x, y; bool ok; };
@@ -38,9 +38,11 @@ void EspOverlay::releaseBuffer() {
 
 void EspOverlay::close() {
     releaseBuffer();
-    if (pen_) DeleteObject(pen_);
-    if (bonePen_) DeleteObject(bonePen_);
-    pen_ = bonePen_ = nullptr;
+    for (HPEN* pen : {&pen_, &bonePen_, &tracerPen_, &circlePen_}) {
+        if (*pen) DeleteObject(*pen);
+        *pen = nullptr;
+    }
+    opacity_ = 0;
     if (window_ && IsWindow(window_)) DestroyWindow(window_);
     window_ = nullptr;
     shown_ = false;
@@ -55,7 +57,6 @@ bool EspOverlay::create() {
     window_ = CreateWindowExW(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         kWindowClass, L"ESP", WS_POPUP, 0, 0, 1, 1, owner_, nullptr, windowClass.hInstance, this);
     if (!window_) { std::fputs("[Cheats] Cannot create ESP layer.\n", stderr); return false; }
-    SetLayeredWindowAttributes(window_, kKey, 0, LWA_COLORKEY);
     return true;
 }
 
@@ -64,12 +65,20 @@ void EspOverlay::update() {
     if (now - lastPaint_ < 8) return;
     lastPaint_ = now;
     const auto view = developerEspSnapshot();
-    const bool visible = view.valid && (view.box || view.skeleton) && IsWindow(owner_) && !IsIconic(owner_);
+    const auto& style = espStyle();
+    const bool circle = style.fovCircle && view.aimbot;
+    const bool visible = view.valid && (view.box || view.skeleton || view.tracers || circle) &&
+                         IsWindow(owner_) && !IsIconic(owner_);
     if (!visible) {
         if (shown_) { ShowWindow(window_, SW_HIDE); shown_ = false; }
         return;
     }
     if (!window_ && !create()) return;
+    if (opacity_ != style.opacity) {
+        // Black stays fully transparent; everything drawn uses the chosen opacity.
+        SetLayeredWindowAttributes(window_, kKey, style.opacity, LWA_COLORKEY | LWA_ALPHA);
+        opacity_ = style.opacity;
+    }
     RECT client{};
     GetClientRect(owner_, &client);
     POINT origin{0, 0};
@@ -96,12 +105,27 @@ void EspOverlay::paint(HDC dc, int width, int height) {
     RECT all{0, 0, width, height};
     FillRect(dc, &all, HBRUSH(GetStockObject(BLACK_BRUSH)));
     const auto view = developerEspSnapshot();
-    if (!pen_) pen_ = CreatePen(PS_SOLID, 2, kBox);
-    if (!bonePen_) bonePen_ = CreatePen(PS_SOLID, 2, kBone);
+    const auto& style = espStyle();
+    const COLORREF colors[4]{EspStyle::palette[style.box % 8], EspStyle::palette[style.bone % 8],
+                             EspStyle::palette[style.tracer % 8], RGB(200, 200, 200)};
+    HPEN* pens[4]{&pen_, &bonePen_, &tracerPen_, &circlePen_};
+    for (int i = 0; i < 4; ++i)
+        if (!*pens[i] || penColors_[i] != colors[i]) {
+            if (*pens[i]) DeleteObject(*pens[i]);
+            *pens[i] = CreatePen(i == 3 ? PS_DOT : PS_SOLID, i == 3 ? 1 : 2, colors[i]);
+            penColors_[i] = colors[i];
+        }
     const auto oldPen = SelectObject(dc, pen_);
+    SetTextColor(dc, colors[0]);
+    if (style.fovCircle && view.aimbot) {
+        // The aim cone's edge at the screen center, in the vertical FOV's scale.
+        const float radius = height * 0.5f * std::tan(view.aimFovDegrees * 3.14159265f / 360) / view.tanHalfVertical;
+        SelectObject(dc, circlePen_);
+        Ellipse(dc, int(width / 2 - radius), int(height / 2 - radius), int(width / 2 + radius), int(height / 2 + radius));
+        SelectObject(dc, pen_);
+    }
     const auto oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
     SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, kText);
     SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
     for (const auto& target : view.targets) {
         const auto feet = project(view, target.x, target.y, target.z, width, height);
@@ -111,6 +135,12 @@ void EspOverlay::paint(HDC dc, int width, int height) {
         if (!(tall > 2) || tall > height * 2) continue;
         const float half = tall * 0.22f;
         const int left = int(feet.x - half), right = int(feet.x + half);
+        if (view.tracers) {
+            SelectObject(dc, tracerPen_);
+            MoveToEx(dc, width / 2, height - 1, nullptr);
+            LineTo(dc, int(feet.x), int(feet.y));
+            SelectObject(dc, pen_);
+        }
         if (view.box) Rectangle(dc, left, int(head.y), right, int(feet.y));
         SelectObject(dc, bonePen_);
         if (view.skeleton) for (const auto& bone : target.bones) {

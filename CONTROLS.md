@@ -218,16 +218,19 @@ Press **F7** to open or close the cheats overlay in the middle of the game
 window. It blocks gameplay input while open; close it, then click the game or
 press F2 to resume mouse control. Options last for this session only.
 
-- **Player:** speed (0.25x to 4x), **Invincible**, **Noclip**, **Infinite ammo**
+- **Player:** speed (0.25x to 4x), **God mode** (invincible), **Noclip**, **Infinite ammo**
   (guns never use rounds; reload once if the magazine was already empty),
   **Unlock all Darkness** and **Max Darkness level**.
 - **Aim:** **Aimbot** turns your view toward the head of the living NPC closest
   to your crosshair (within about 25 degrees) while you hold **V** or **Mouse 4**.
-  It does not check line of sight.
+  It does not check line of sight. The **FOV** slider sets how far from the
+  crosshair it will lock (5 to 90 degrees); **Show FOV circle** draws that area.
 - **Weapons:** select a campaign gun and press **Give** (or double-click it).
   A weapon can only be given in a level that loads it.
-- **Visuals:** **Box ESP** and **Skeleton ESP** draw over every living NPC the
-  game is animating, even through walls, with their health. Both include
+- **Visuals:** **Box ESP**, **Skeleton ESP** and **Tracers** (lines from the
+  bottom of the screen) draw over every living NPC the game is animating, even
+  through walls, with their health. Each color button cycles through eight
+  colors, and **Opacity** sets how see-through the drawing is. They include
   friendly and neutral characters.
 - **Mission:** choose a destination and press **Load**.
 - **Settings:** the F6 resolution shortcut, **Restore defaults** (turns every

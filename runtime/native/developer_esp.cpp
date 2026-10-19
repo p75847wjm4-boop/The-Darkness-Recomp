@@ -21,7 +21,9 @@ namespace {
 constexpr uint32_t kNpcVtable = 0x820626C8;
 constexpr uint32_t kMatrix = 16;
 constexpr float kEyeHeight = 52, kAimHeight = 46;
-constexpr float kAimCone = 25.0f * 3.14159265f / 180, kAimRange = 4000;
+constexpr float kAimRange = 4000;
+std::atomic<float> aimFov{25};
+float aimCone() { return aimFov.load(std::memory_order_relaxed) * 0.5f * 3.14159265f / 180; }
 constexpr double kUnitsPerRadian = 65536.0 / (2 * 3.14159265358979);
 
 std::mutex snapshotMutex;
@@ -192,8 +194,9 @@ void rememberGameplayFov(float degrees) noexcept {
 }
 
 void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
-                         const DeveloperPlayerHandles& player, bool box, bool skeleton, bool aimbot) {
-    const bool esp = box || skeleton;
+                         const DeveloperPlayerHandles& player, bool box, bool skeleton, bool tracers,
+                         bool aimbot) {
+    const bool esp = box || skeleton || tracers;
     const auto now = GetTickCount64();
     aimEnabled.store(aimbot, std::memory_order_release);
     regions = {}; // Allocations may have been released since the last update.
@@ -201,6 +204,9 @@ void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
     if ((esp || aimbot) && player.actor && player.server && clientView(ctx, base, client, next)) {
         next.box = box;
         next.skeleton = skeleton;
+        next.tracers = tracers;
+        next.aimbot = aimbot;
+        next.aimFovDegrees = aimFov.load(std::memory_order_relaxed);
         const auto poses = esp ? currentPoses(base) : std::vector<Pose>{};
         const auto objects = PPC_LOAD_U32(player.server + 1460);
         if (committed(base, objects, 28)) {
@@ -261,6 +267,10 @@ void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
     current = std::move(next);
 }
 
+void setDeveloperAimFov(float degrees) noexcept {
+    if (std::isfinite(degrees)) aimFov.store(std::clamp(degrees, 5.0f, 90.0f), std::memory_order_relaxed);
+}
+
 void clearDeveloperEsp() noexcept {
     aimEnabled.store(false, std::memory_order_release);
     held.clear();
@@ -297,13 +307,14 @@ bool developerAimCorrection(PPCContext& ctx, uint8_t* base, uint32_t client,
     };
     // Keep the current target while it stays alive and in the cone, so nearby
     // NPCs cannot pull the view back and forth between frames.
+    const float cone = aimCone();
     const EspTarget* chosen = nullptr;
-    float best = kAimCone, dx = 0, dy = 0, dz = 0;
+    float best = cone, dx = 0, dy = 0, dz = 0;
     const auto locked = lockedTarget.load(std::memory_order_relaxed);
     for (const auto& target : targets) {
         float x, y, z;
         const float angle = direction(target, x, y, z);
-        if (target.id == locked && angle < kAimCone * 1.5f) { chosen = &target; dx = x; dy = y; dz = z; break; }
+        if (target.id == locked && angle < cone * 1.5f) { chosen = &target; dx = x; dy = y; dz = z; break; }
         if (angle < best) { best = angle; chosen = &target; dx = x; dy = y; dz = z; }
     }
     if (!chosen) { lockedTarget.store(0, std::memory_order_relaxed); return false; }

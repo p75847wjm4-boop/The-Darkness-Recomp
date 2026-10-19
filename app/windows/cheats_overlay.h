@@ -35,6 +35,9 @@ private:
     void restoreDefaults();
     void releaseInputGate();
     bool dropDownOpen() const;
+    void slider(HWND control);
+    void cycleColor(unsigned& index, HWND button, const wchar_t* label);
+    void refreshStyle();
 
     HWND owner_{};
     NativeMouseWindow& mouse_;
@@ -42,7 +45,8 @@ private:
     std::function<void(bool)> setResolutionShortcut_;
     HWND window_{}, speed_{}, invincible_{}, noclip_{}, infiniteAmmo_{}, unlock_{}, maxDarkness_{},
          aimbot_{}, weapons_{}, give_{}, box_{}, skeleton_{}, mission_{}, load_{}, shortcut_{},
-         defaults_{}, status_{};
+         defaults_{}, status_{}, tracers_{}, boxColor_{}, boneColor_{}, tracerColor_{}, opacity_{},
+         opacityValue_{}, fov_{}, fovValue_{}, fovCircle_{};
     HBRUSH background_{}, field_{};
     HFONT titleFont_{};
     bool inputGate_ = false;
