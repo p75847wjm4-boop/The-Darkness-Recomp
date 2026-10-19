@@ -215,7 +215,7 @@ Header header(std::span<const uint8_t> bytes) {
 Bytes read(const std::filesystem::path& path) {
     std::ifstream input(path, std::ios::binary | std::ios::ate);
     const auto size = input.tellg();
-    if (!input || size <= 0 || uint64_t(size) > 512ull * 1024 * 1024)
+    if (!input || size <= 0 || uint64_t(size) > 128ull * 1024 * 1024)
         invalid("Missing or invalid developer weapon donor archive.");
     Bytes bytes(static_cast<size_t>(size));
     input.seekg(0);
@@ -727,12 +727,7 @@ namespace {
 // Header-only scan of one level archive: every cached file's name, logical
 // size and recorded read blocks (offset, length, payload stream offset).
 struct DonorBlock { uint32_t offset, length, stream; };
-struct DonorRecord {
-    std::filesystem::path archive;
-    uint32_t size = 0;
-    uint64_t covered = 0;
-    std::vector<std::pair<uint32_t, uint32_t>> ranges; // Sorted, coalesced.
-};
+struct DonorRecord { std::filesystem::path archive; uint32_t size = 0; uint64_t covered = 0; };
 Bytes readPrefix(const std::filesystem::path& path, uint64_t size) {
     std::ifstream input(path, std::ios::binary);
     Bytes bytes(static_cast<size_t>(size));
@@ -781,34 +776,12 @@ template<class Visit> void visitArchive(std::span<const uint8_t> archive, Visit&
 std::mutex donorMutex;
 std::atomic<bool> donorsEnabled{false};
 bool donorIndexed = false;
-std::map<std::string, std::vector<DonorRecord>> donorIndex;
+std::map<std::string, DonorRecord> donorIndex;
 std::map<std::string, std::shared_ptr<const CachedWeaponFile>> donorFiles;
-using Ranges = std::vector<std::pair<uint32_t, uint32_t>>;
-
-void addRange(Ranges& ranges, uint32_t offset, uint32_t length) {
-    if (!length) return;
-    ranges.emplace_back(offset, length);
-    std::sort(ranges.begin(), ranges.end());
-    Ranges merged;
-    for (const auto [first, count] : ranges) {
-        if (!merged.empty() && uint64_t(merged.back().first) + merged.back().second >= first) {
-            const auto end = (std::max)(uint64_t(merged.back().first) + merged.back().second,
-                                        uint64_t(first) + count);
-            merged.back().second = uint32_t(end - merged.back().first);
-        } else merged.emplace_back(first, count);
-    }
-    ranges = std::move(merged);
-}
-uint64_t coverage(const Ranges& ranges) {
-    uint64_t total = 0;
-    for (const auto [first, count] : ranges) total += count;
-    return total;
-}
 
 void buildDonorIndex(const std::filesystem::path& gameDirectory) {
     donorIndexed = true;
     std::error_code error;
-    size_t archives = 0;
     for (const auto& entry : std::filesystem::directory_iterator(gameDirectory / L"Content/Xdf", error)) {
         auto extension = entry.path().extension().string();
         for (auto& c : extension) if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
@@ -817,76 +790,53 @@ void buildDonorIndex(const std::filesystem::path& gameDirectory) {
             const auto tables = archiveTables(entry.path());
             visitArchive(tables, [&](const std::string& name, uint32_t size,
                                      const std::vector<DonorBlock>& blocks, const Header&) {
-                if (blocks.empty()) return;
-                DonorRecord record{entry.path(), size, 0, {}};
-                for (const auto& block : blocks) addRange(record.ranges, block.offset, block.length);
-                record.covered = coverage(record.ranges);
-                donorIndex[name].push_back(std::move(record));
+                uint64_t covered = 0;
+                for (const auto& block : blocks) covered += block.length;
+                auto& best = donorIndex[name];
+                if (covered > best.covered) best = {entry.path(), size, covered};
             });
-            ++archives;
         } catch (const std::exception& failure) {
             std::fprintf(stderr, "[Donor] Skipped '%ls': %s\n", entry.path().filename().c_str(), failure.what());
         }
     }
-    std::fprintf(stderr, "[Donor] Indexed %zu files from %zu level archives.\n", donorIndex.size(), archives);
-}
-
-// Combine the fewest archives whose recorded reads cover the whole file. A
-// partial file would hand the loader uncached bytes, which retail asserts on.
-std::vector<const DonorRecord*> completeDonors(std::vector<DonorRecord>& records) {
-    std::sort(records.begin(), records.end(),
-              [](const auto& left, const auto& right) { return left.covered > right.covered; });
-    std::vector<const DonorRecord*> chosen;
-    Ranges combined;
-    for (const auto& record : records) {
-        if (record.size != records.front().size) continue;
-        const auto before = coverage(combined);
-        auto next = combined;
-        for (const auto [first, count] : record.ranges) addRange(next, first, count);
-        if (coverage(next) == before) continue;
-        combined = std::move(next);
-        chosen.push_back(&record);
-        if (coverage(combined) == record.size) return chosen;
-    }
-    return {};
+    std::fprintf(stderr, "[Donor] Indexed %zu files from level archives.\n", donorIndex.size());
 }
 
 std::shared_ptr<const CachedWeaponFile> extractDonor(PPCContext& ctx, uint8_t* base,
-    const std::filesystem::path& gameDirectory, const std::string& name,
-    const std::vector<const DonorRecord*>& records) {
-    const auto size = records.front()->size;
+    const std::filesystem::path& gameDirectory, const std::string& name, const DonorRecord& record) {
+    const auto tables = archiveTables(record.archive);
+    std::vector<DonorBlock> blocks;
+    Header info;
+    visitArchive(tables, [&](const std::string& found, uint32_t size,
+                             const std::vector<DonorBlock>& reads, const Header& archiveInfo) {
+        if (found == name && size == record.size) { blocks = reads; info = archiveInfo; }
+    });
+    if (blocks.empty()) invalid("Developer donor file has no cached reads.");
+    File file{name, record.size, {}};
+    uint32_t needed = 0;
+    for (const auto& block : blocks) needed = (std::max)(needed, block.stream + block.length);
     const auto path = gameDirectory.parent_path() / L"build_native/run/developer-donors" /
-        std::filesystem::path(name);
+        record.archive.stem() / std::filesystem::path(name);
     std::error_code error;
-    if (!std::filesystem::exists(path, error) || std::filesystem::file_size(path, error) != size) {
-        File file{name, size, {}};
-        for (const auto* record : records) {
-            const auto tables = archiveTables(record->archive);
-            std::vector<DonorBlock> blocks;
-            Header info;
-            visitArchive(tables, [&](const std::string& found, uint32_t foundSize,
-                                     const std::vector<DonorBlock>& reads, const Header& archiveInfo) {
-                if (found == name && foundSize == size) { blocks = reads; info = archiveInfo; }
-            });
-            if (blocks.empty()) invalid("Developer donor file has no cached reads.");
-            uint32_t needed = 0;
-            for (const auto& block : blocks) needed = (std::max)(needed, block.stream + block.length);
-            const auto archive = read(record->archive);
-            const auto payload = inflate(ctx, base, std::span(archive).subspan(info.stream),
-                                         uint32_t(info.payloadSize), needed);
-            for (const auto& block : blocks)
-                DeveloperWeaponAssetDetail::mergeFile(file, File{name, size, {{block.offset,
-                    Bytes(payload.begin() + block.stream, payload.begin() + block.stream + block.length)}}});
-        }
-        if (file.segments.size() != 1 || file.segments.front().offset ||
-            file.segments.front().bytes.size() != size)
-            invalid("Developer donor archives do not contain the whole file.");
+    if (!std::filesystem::exists(path, error) || std::filesystem::file_size(path, error) != record.size) {
+        const auto archive = read(record.archive);
+        const auto payload = inflate(ctx, base, std::span(archive).subspan(info.stream),
+                                     uint32_t(info.payloadSize), needed);
+        for (const auto& block : blocks)
+            DeveloperWeaponAssetDetail::mergeFile(file, File{name, record.size, {{block.offset,
+                Bytes(payload.begin() + block.stream, payload.begin() + block.stream + block.length)}}});
         std::filesystem::remove(path, error);
         store(path, file);
+    } else {
+        for (const auto& block : blocks)
+            DeveloperWeaponAssetDetail::mergeFile(file, File{name, record.size, {{block.offset,
+                Bytes(block.length)}}});
     }
     auto prepared = std::make_shared<CachedWeaponFile>();
-    prepared->path = path; prepared->size = size;
-    prepared->ranges.emplace_back(0, size);
+    prepared->path = path; prepared->size = record.size;
+    // mergeFile leaves sorted, coalesced segments.
+    for (const auto& segment : file.segments)
+        prepared->ranges.emplace_back(segment.offset, uint32_t(segment.bytes.size()));
     return prepared;
 }
 }
@@ -905,16 +855,11 @@ std::shared_ptr<const CachedWeaponFile> developerDonorFile(PPCContext& ctx, uint
     auto& prepared = donorFiles[name];
     try {
         if (!donorIndexed) buildDonorIndex(gameDirectory);
-        const auto records = donorIndex.find(name);
-        if (records == donorIndex.end()) return {};
-        const auto chosen = completeDonors(records->second);
-        if (chosen.empty()) {
-            std::fprintf(stderr, "[Donor] No archive set contains all of '%s'.\n", name.c_str());
-            return {};
-        }
-        prepared = extractDonor(ctx, base, gameDirectory, name, chosen);
-        std::fprintf(stderr, "[Donor] Loaded '%s' from %zu archive(s), first %ls.\n", name.c_str(),
-                     chosen.size(), chosen.front()->archive.filename().c_str());
+        const auto record = donorIndex.find(name);
+        if (record == donorIndex.end()) return {};
+        prepared = extractDonor(ctx, base, gameDirectory, name, record->second);
+        std::fprintf(stderr, "[Donor] Loaded '%s' from %ls.\n", name.c_str(),
+                     record->second.archive.filename().c_str());
     } catch (const std::exception& failure) {
         std::fprintf(stderr, "[Donor] Cannot load '%s': %s\n", name.c_str(), failure.what());
     }
