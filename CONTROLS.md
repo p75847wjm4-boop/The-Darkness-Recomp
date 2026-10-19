@@ -220,7 +220,8 @@ press F2 to resume mouse control. Options last for this session only.
 
 - **Player:** speed (0.25x to 4x), **God mode** (invincible), **Noclip**, **Infinite ammo**
   (guns never use rounds; reload once if the magazine was already empty),
-  **Unlock all Darkness** and **Max Darkness level**.
+  **Unlock all Darkness**, **Max Darkness level** and **Camera FOV** (Original or
+  60 to 120 degrees; this session only, Video Settings saves it permanently).
 - **Aim:** **Aimbot** turns your view toward the head of the living NPC closest
   to your crosshair (within about 25 degrees) while you hold **V** or **Mouse 4**.
   It does not check line of sight. The **FOV** slider sets how far from the

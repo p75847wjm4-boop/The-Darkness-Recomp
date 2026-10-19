@@ -2,6 +2,7 @@
 #include "esp_style.h"
 #include "native_mouse.h"
 #include "runtime/native/developer_esp.h"
+#include "runtime/native/fov_settings.h"
 #include <commctrl.h>
 #include "runtime/native/developer_tools.h"
 #include "runtime/native/input.h"
@@ -21,7 +22,7 @@ constexpr UINT_PTR kRefreshTimer = 1;
 enum : int {
     kSpeed = 2001, kInvincible, kNoclip, kInfiniteAmmo, kUnlock, kMaxDarkness, kAimbot,
     kWeapons, kGive, kBox, kSkeleton, kMission, kLoad, kShortcut, kDefaults, kProbe,
-    kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle
+    kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov
 };
 constexpr int kWidth = 640, kHeight = 600;
 constexpr BYTE kOpacity = 235;
@@ -168,7 +169,7 @@ void CheatsOverlay::createControls() {
     control(window_, L"STATIC", L"CHEATS", 0, 16, 8, 300, 26, 0, titleFont_);
 
     // Left column: player, aim, weapons.
-    group(window_, L"PLAYER", 12, 40, 304, 172);
+    group(window_, L"PLAYER", 12, 40, 304, 186);
     control(window_, L"STATIC", L"SPEED", 0, 26, 64, 60, 18);
     speed_ = control(window_, L"COMBOBOX", L"", comboStyle, 90, 60, 130, 240, kSpeed);
     for (const auto* name : kSpeedNames) SendMessageW(speed_, CB_ADDSTRING, 0, LPARAM(name));
@@ -177,18 +178,23 @@ void CheatsOverlay::createControls() {
     infiniteAmmo_ = check(window_, L"INFINITE AMMO", 26, 120, 270, kInfiniteAmmo);
     unlock_ = button(window_, L"UNLOCK ALL DARKNESS", 26, 154, 134, kUnlock);
     maxDarkness_ = button(window_, L"MAX DARKNESS LEVEL", 168, 154, 134, kMaxDarkness);
+    // Leftmost position is the original camera; 60-120 are horizontal degrees at 16:9.
+    control(window_, L"STATIC", L"CAMERA FOV", 0, 26, 194, 78, 18);
+    cameraFov_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 104, 190, 150, 26, kCameraFov);
+    SendMessageW(cameraFov_, TBM_SETRANGE, FALSE, MAKELPARAM(59, 120));
+    cameraFovValue_ = control(window_, L"STATIC", L"", 0, 258, 194, 54, 18);
 
-    group(window_, L"AIM", 12, 220, 304, 108);
-    aimbot_ = check(window_, L"AIMBOT (HOLD V OR MOUSE 4)", 26, 242, 280, kAimbot);
-    control(window_, L"STATIC", L"FOV", 0, 26, 272, 40, 18);
-    fov_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 64, 268, 190, 26, kFov);
+    group(window_, L"AIM", 12, 234, 304, 108);
+    aimbot_ = check(window_, L"AIMBOT (HOLD V OR MOUSE 4)", 26, 256, 280, kAimbot);
+    control(window_, L"STATIC", L"AIM FOV", 0, 26, 286, 60, 18);
+    fov_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 84, 282, 170, 26, kFov);
     SendMessageW(fov_, TBM_SETRANGE, FALSE, MAKELPARAM(5, 90));
-    fovValue_ = control(window_, L"STATIC", L"", 0, 258, 272, 50, 18);
-    fovCircle_ = check(window_, L"SHOW FOV CIRCLE", 26, 298, 270, kFovCircle);
+    fovValue_ = control(window_, L"STATIC", L"", 0, 258, 286, 50, 18);
+    fovCircle_ = check(window_, L"SHOW FOV CIRCLE", 26, 312, 270, kFovCircle);
 
-    group(window_, L"WEAPONS", 12, 336, 304, 252);
+    group(window_, L"WEAPONS", 12, 350, 304, 238);
     weapons_ = control(window_, L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP | WS_BORDER,
-                       26, 356, 276, 190, kWeapons);
+                       26, 370, 276, 176, kWeapons);
     for (const auto& weapon : developerWeapons()) {
         std::wstring title(weapon.title.begin(), weapon.title.end());
         CharUpperBuffW(title.data(), DWORD(title.size()));
@@ -353,6 +359,10 @@ void CheatsOverlay::refreshStyle() {
     SendMessageW(opacity_, TBM_SETPOS, TRUE, LPARAM(style.opacity * 100 / 255));
     SendMessageW(fov_, TBM_SETPOS, TRUE, LPARAM(style.aimFov));
     setCheck(fovCircle_, style.fovCircle);
+    const float camera = fieldOfViewSetting();
+    SendMessageW(cameraFov_, TBM_SETPOS, TRUE, LPARAM(camera == kOriginalFov ? 59 : int(camera + 0.5f)));
+    SetWindowTextW(cameraFovValue_, camera == kOriginalFov ? L"ORIGINAL" :
+                   (std::to_wstring(int(camera + 0.5f)) + L"\u00B0").c_str());
     SetWindowTextW(opacityValue_, (std::to_wstring(style.opacity * 100 / 255) + L"%").c_str());
     SetWindowTextW(fovValue_, (std::to_wstring(int(style.aimFov)) + L"\u00B0").c_str());
 }
@@ -360,6 +370,12 @@ void CheatsOverlay::refreshStyle() {
 void CheatsOverlay::slider(HWND control) {
     auto& style = espStyle();
     const auto position = int(SendMessageW(control, TBM_GETPOS, 0, 0));
+    if (control == cameraFov_) {
+        // Session change; Video Settings saves the camera FOV permanently.
+        setFieldOfViewSetting(position < 60 ? kOriginalFov : float((std::min)(position, 120)));
+        refreshStyle();
+        return;
+    }
     if (control == opacity_) style.opacity = BYTE(std::clamp(position, 20, 100) * 255 / 100);
     else if (control == fov_) {
         style.aimFov = float(std::clamp(position, 5, 90));
@@ -421,7 +437,7 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
         window_ = speed_ = invincible_ = noclip_ = infiniteAmmo_ = unlock_ = maxDarkness_ = aimbot_ =
             weapons_ = give_ = box_ = skeleton_ = mission_ = load_ = shortcut_ = defaults_ = status_ =
             tracers_ = boxColor_ = boneColor_ = tracerColor_ = opacity_ = opacityValue_ = fov_ = fovValue_ =
-            fovCircle_ = nullptr;
+            fovCircle_ = cameraFov_ = cameraFovValue_ = nullptr;
         displayedStatus_.clear();
         releaseInputGate();
         if (restoreFocus && IsWindow(owner_)) SetFocus(owner_);

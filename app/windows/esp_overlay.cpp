@@ -116,6 +116,8 @@ void EspOverlay::paint(HDC dc, int width, int height) {
             penColors_[i] = colors[i];
         }
     const auto oldPen = SelectObject(dc, pen_);
+    // Outlines only: rectangles and the FOV circle must never be filled.
+    const auto oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
     SetTextColor(dc, colors[0]);
     if (style.fovCircle && view.aimbot) {
         // The aim cone's edge at the screen center, in the vertical FOV's scale.
@@ -124,7 +126,6 @@ void EspOverlay::paint(HDC dc, int width, int height) {
         Ellipse(dc, int(width / 2 - radius), int(height / 2 - radius), int(width / 2 + radius), int(height / 2 + radius));
         SelectObject(dc, pen_);
     }
-    const auto oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
     SetBkMode(dc, TRANSPARENT);
     SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
     for (const auto& target : view.targets) {
