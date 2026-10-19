@@ -507,7 +507,9 @@ bool cachedLogicalRead(PPCContext& ctx, uint8_t* base) {
         PPC_STORE_U8(context + 88, 0); ctx.r3.u64 = nominal; return true;
     }
     const auto count = uint32_t((std::min)(uint64_t(requested), nominal - position));
-    if (!file->cachedWeaponFile->covers(position, count)) { fail("uncached range"); return true; }
+    if (!file->cachedWeaponFile->zeroHoles && !file->cachedWeaponFile->covers(position, count)) {
+        fail("uncached range"); return true;
+    }
     if (!guestSpan(base, destination, count, true)) { fail("invalid guest destination"); return true; }
     try {
         // Read only the logical request. The ordinary loose-file reader would
@@ -831,13 +833,12 @@ void buildDonorIndex(const std::filesystem::path& gameDirectory) {
     std::fprintf(stderr, "[Donor] Indexed %zu files from %zu level archives.\n", donorIndex.size(), archives);
 }
 
-// Combine the fewest archives whose recorded reads cover the whole file. A
-// partial file would hand the loader uncached bytes, which retail asserts on.
-std::vector<const DonorRecord*> completeDonors(std::vector<DonorRecord>& records) {
+// Retail reads only parts of most files, so no archive holds a whole one.
+// Combine every archive that adds recorded bytes; the header must be among them.
+std::vector<const DonorRecord*> donorSet(std::vector<DonorRecord>& records, Ranges& combined) {
     std::sort(records.begin(), records.end(),
               [](const auto& left, const auto& right) { return left.covered > right.covered; });
     std::vector<const DonorRecord*> chosen;
-    Ranges combined;
     for (const auto& record : records) {
         if (record.size != records.front().size) continue;
         const auto before = coverage(combined);
@@ -846,14 +847,14 @@ std::vector<const DonorRecord*> completeDonors(std::vector<DonorRecord>& records
         if (coverage(next) == before) continue;
         combined = std::move(next);
         chosen.push_back(&record);
-        if (coverage(combined) == record.size) return chosen;
     }
-    return {};
+    if (combined.empty() || combined.front().first) return {};
+    return chosen;
 }
 
 std::shared_ptr<const CachedWeaponFile> extractDonor(PPCContext& ctx, uint8_t* base,
     const std::filesystem::path& gameDirectory, const std::string& name,
-    const std::vector<const DonorRecord*>& records) {
+    const std::vector<const DonorRecord*>& records, const Ranges& ranges) {
     const auto size = records.front()->size;
     const auto path = gameDirectory.parent_path() / L"build_native/run/developer-donors" /
         std::filesystem::path(name);
@@ -878,15 +879,13 @@ std::shared_ptr<const CachedWeaponFile> extractDonor(PPCContext& ctx, uint8_t* b
                 DeveloperWeaponAssetDetail::mergeFile(file, File{name, size, {{block.offset,
                     Bytes(payload.begin() + block.stream, payload.begin() + block.stream + block.length)}}});
         }
-        if (file.segments.size() != 1 || file.segments.front().offset ||
-            file.segments.front().bytes.size() != size)
-            invalid("Developer donor archives do not contain the whole file.");
         std::filesystem::remove(path, error);
         store(path, file);
     }
     auto prepared = std::make_shared<CachedWeaponFile>();
     prepared->path = path; prepared->size = size;
-    prepared->ranges.emplace_back(0, size);
+    prepared->ranges = ranges;
+    prepared->zeroHoles = true;
     return prepared;
 }
 }
@@ -907,14 +906,15 @@ std::shared_ptr<const CachedWeaponFile> developerDonorFile(PPCContext& ctx, uint
         if (!donorIndexed) buildDonorIndex(gameDirectory);
         const auto records = donorIndex.find(name);
         if (records == donorIndex.end()) return {};
-        const auto chosen = completeDonors(records->second);
+        Ranges ranges;
+        const auto chosen = donorSet(records->second, ranges);
         if (chosen.empty()) {
-            std::fprintf(stderr, "[Donor] No archive set contains all of '%s'.\n", name.c_str());
+            std::fprintf(stderr, "[Donor] No archive caches the header of '%s'.\n", name.c_str());
             return {};
         }
-        prepared = extractDonor(ctx, base, gameDirectory, name, chosen);
-        std::fprintf(stderr, "[Donor] Loaded '%s' from %zu archive(s), first %ls.\n", name.c_str(),
-                     chosen.size(), chosen.front()->archive.filename().c_str());
+        prepared = extractDonor(ctx, base, gameDirectory, name, chosen, ranges);
+        std::fprintf(stderr, "[Donor] Loaded '%s' from %zu archive(s): %llu of %u bytes cached.\n",
+                     name.c_str(), chosen.size(), coverage(ranges), chosen.front()->size);
     } catch (const std::exception& failure) {
         std::fprintf(stderr, "[Donor] Cannot load '%s': %s\n", name.c_str(), failure.what());
     }
