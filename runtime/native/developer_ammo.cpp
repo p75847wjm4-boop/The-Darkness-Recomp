@@ -44,8 +44,7 @@ bool array(uint8_t* base, uint32_t address, uint32_t limit, uint32_t& data, uint
     return count <= limit && (!count || span(data, count * 4));
 }
 
-bool playerItem(uint8_t* base, uint32_t item, uint32_t size) noexcept {
-    const auto inventory = activeInventory.load(std::memory_order_acquire);
+bool inventoryItem(uint8_t* base, uint32_t inventory, uint32_t item, uint32_t size) noexcept {
     if (!inventory || !DarkRecomp::Native::memory || base != DarkRecomp::Native::memory->base() ||
         activeBase.load(std::memory_order_acquire) != base || !span(item, size) || !span(inventory, 28)) return false;
     uint32_t categories, categoryCount;
@@ -59,6 +58,11 @@ bool playerItem(uint8_t* base, uint32_t item, uint32_t size) noexcept {
     }
     return false;
 }
+bool playerItem(uint8_t* base, uint32_t item, uint32_t size) noexcept {
+    return inventoryItem(base, activeInventory.load(std::memory_order_acquire), item, size);
+}
+std::atomic<uint32_t> modInventory{0};
+std::atomic<bool> rapidFire{false}, noRecoil{false};
 }
 
 namespace DarkRecomp::Native {
@@ -70,6 +74,30 @@ void configureDeveloperInfiniteAmmo(uint8_t* base, uint32_t actor, bool infinite
     activeBase.store(base, std::memory_order_release);
     activeInventory.store(PPC_LOAD_U32(actor + kInventoryOffset), std::memory_order_release);
 }
+void configureDeveloperWeaponMods(uint8_t* base, uint32_t actor, bool rapid, bool steady, bool enabled) noexcept {
+    if (!enabled || !(rapid || steady) || !memory || base != memory->base() || !span(actor, kInventoryOffset + 4)) {
+        modInventory.store(0, std::memory_order_release);
+        return;
+    }
+    activeBase.store(base, std::memory_order_release);
+    rapidFire.store(rapid, std::memory_order_release);
+    noRecoil.store(steady, std::memory_order_release);
+    modInventory.store(PPC_LOAD_U32(actor + kInventoryOffset), std::memory_order_release);
+}
+}
+// Original 822C26C8(weapon, shooter, delay, f1, f2) runs as each shot fires:
+// it sends f1 and f2 to the shooter as messages 101D/101C (the shot's kick),
+// then sets the next permitted fire tick at +556 to now + delay (weapon +308).
+// A zero delay stores tick 0, so the next trigger pull fires at once.
+extern "C" PPC_FUNC(__imp__sub_822C26C8);
+PPC_FUNC(sub_822C26C8) {
+    const auto inventory = modInventory.load(std::memory_order_acquire);
+    if (inventory && activeBase.load(std::memory_order_acquire) == base &&
+        inventoryItem(base, inventory, ctx.r3.u32, 560)) {
+        if (rapidFire.load(std::memory_order_relaxed)) ctx.r5.u64 = 0;
+        if (noRecoil.load(std::memory_order_relaxed)) { ctx.f1.f64 = 0; ctx.f2.f64 = 0; }
+    }
+    __imp__sub_822C26C8(ctx, base);
 }
 
 // Original 82332428(ammo, rounds): take = min(loaded, rounds), draw take from the

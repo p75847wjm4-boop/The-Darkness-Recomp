@@ -52,6 +52,8 @@ void publish(uint64_t request, bool canLoad, bool hasPlayer, std::string_view st
     if (playerApplied && status.empty() &&
         (state.status == "Player speed queued." || state.status == "Invincibility queued." ||
          state.status == "Noclip queued." || state.status == "Infinite ammo queued." ||
+         state.status == "Rapid fire queued." || state.status == "No recoil queued." ||
+         state.status == "Darkling god mode queued." ||
          state.status == "ESP queued." || state.status == "Aimbot queued."))
         status = "Player settings applied.";
     const bool statusChanged = requestRevision == request && !status.empty() && state.status != status;
@@ -61,6 +63,7 @@ void publish(uint64_t request, bool canLoad, bool hasPlayer, std::string_view st
     // hooks. A request arriving during that update must keep its next update.
     if (playerProcessed && requestRevision == request && state.playerSpeed == 1 &&
         !state.invincible && !state.noclip && !state.infiniteAmmo &&
+        !state.rapidFire && !state.noRecoil && !state.darklingGod &&
         !state.espBox && !state.espSkeleton && !state.espTracers &&
         !state.aimbot) playerToolsEnabled = false;
     refreshWorkLocked();
@@ -226,6 +229,27 @@ void requestDeveloperInfiniteAmmo(bool enabled) {
     requested("Infinite ammo queued.");
 }
 
+void requestDeveloperRapidFire(bool enabled) {
+    std::lock_guard lock(stateMutex);
+    state.rapidFire = enabled;
+    playerToolsEnabled = true;
+    requested("Rapid fire queued.");
+}
+
+void requestDeveloperNoRecoil(bool enabled) {
+    std::lock_guard lock(stateMutex);
+    state.noRecoil = enabled;
+    playerToolsEnabled = true;
+    requested("No recoil queued.");
+}
+
+void requestDeveloperDarklingGod(bool enabled) {
+    std::lock_guard lock(stateMutex);
+    state.darklingGod = enabled;
+    playerToolsEnabled = true;
+    requested("Darkling god mode queued.");
+}
+
 void requestDeveloperEspBox(bool enabled) {
     std::lock_guard lock(stateMutex);
     state.espBox = enabled;
@@ -297,7 +321,7 @@ void resetDeveloperTools() {
 bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool missionReady) {
     std::optional<std::string> mission, weapon, spawn;
     float speed;
-    bool invincible, noclip, infiniteAmmo, espBox, espSkeleton, espTracers, aimbot, enabled, unlockDarkness, maxDarkness, probe, overlay;
+    bool invincible, noclip, infiniteAmmo, rapidFire, noRecoil, darklingGod, espBox, espSkeleton, espTracers, aimbot, enabled, unlockDarkness, maxDarkness, probe, overlay;
     uint64_t request;
     {
         std::lock_guard lock(stateMutex);
@@ -311,6 +335,9 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         invincible = state.invincible;
         noclip = state.noclip;
         infiniteAmmo = state.infiniteAmmo;
+        rapidFire = state.rapidFire;
+        noRecoil = state.noRecoil;
+        darklingGod = state.darklingGod;
         espBox = state.espBox;
         espSkeleton = state.espSkeleton;
         espTracers = state.espTracers;
@@ -342,7 +369,8 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         // Even a failed engine command may have changed transition state.
         return canLoad;
     }
-    const auto player = updateDeveloperPlayer(call, base, client, speed, invincible, enabled, noclip, infiniteAmmo);
+    const auto player = updateDeveloperPlayer(call, base, client, speed, invincible, enabled, noclip, infiniteAmmo,
+                                              rapidFire, noRecoil, darklingGod);
     const bool esp = espBox || espSkeleton || espTracers;
     setSkeletonCapture((enabled && esp) || overlay);
     if (enabled && (esp || aimbot))

@@ -22,7 +22,7 @@ constexpr UINT_PTR kRefreshTimer = 1;
 enum : int {
     kSpeed = 2001, kInvincible, kNoclip, kInfiniteAmmo, kUnlock, kMaxDarkness, kAimbot,
     kWeapons, kGive, kBox, kSkeleton, kMission, kLoad, kShortcut, kDefaults, kProbe,
-    kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov, kHealth, kSpawnName, kSpawn, kDistance, kMaxDistance, kNames
+    kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov, kHealth, kSpawnName, kSpawn, kDistance, kMaxDistance, kNames, kDarklingGod, kRapidFire, kNoRecoil
 };
 constexpr int kWidth = 640, kHeight = 704;
 constexpr BYTE kOpacity = 235;
@@ -176,7 +176,8 @@ void CheatsOverlay::createControls() {
     for (const auto* name : kSpeedNames) SendMessageW(speed_, CB_ADDSTRING, 0, LPARAM(name));
     invincible_ = check(window_, L"GOD MODE", 26, 94, 130, kInvincible);
     noclip_ = check(window_, L"NOCLIP", 166, 94, 130, kNoclip);
-    infiniteAmmo_ = check(window_, L"INFINITE AMMO", 26, 120, 270, kInfiniteAmmo);
+    infiniteAmmo_ = check(window_, L"INFINITE AMMO", 26, 120, 136, kInfiniteAmmo);
+    darklingGod_ = check(window_, L"GOD DARKLINGS", 166, 120, 140, kDarklingGod);
     unlock_ = button(window_, L"UNLOCK ALL DARKNESS", 26, 154, 134, kUnlock);
     maxDarkness_ = button(window_, L"MAX DARKNESS LEVEL", 168, 154, 134, kMaxDarkness);
     // Leftmost position is the original camera; 60-120 are horizontal degrees at 16:9.
@@ -195,13 +196,15 @@ void CheatsOverlay::createControls() {
 
     group(window_, L"WEAPONS", 12, 350, 304, 238);
     weapons_ = control(window_, L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP | WS_BORDER,
-                       26, 370, 276, 176, kWeapons);
+                       26, 370, 276, 146, kWeapons);
     for (const auto& weapon : developerWeapons()) {
         std::wstring title(weapon.title.begin(), weapon.title.end());
         CharUpperBuffW(title.data(), DWORD(title.size()));
         SendMessageW(weapons_, LB_ADDSTRING, 0, LPARAM(title.c_str()));
     }
     SendMessageW(weapons_, LB_SETCURSEL, 0, 0);
+    rapidFire_ = check(window_, L"RAPID FIRE", 26, 524, 130, kRapidFire);
+    noRecoil_ = check(window_, L"NO RECOIL", 166, 524, 130, kNoRecoil);
     give_ = button(window_, L"GIVE", 26, 552, 90, kGive);
 
     // Right column: visuals, mission, settings, status.
@@ -272,7 +275,7 @@ void CheatsOverlay::refresh() {
     if (!window_ || !status_) return;
     const auto snapshot = developerSnapshot();
     const bool player = snapshot.hasActivePlayer;
-    for (const HWND control : {speed_, invincible_, noclip_, infiniteAmmo_, unlock_, maxDarkness_, aimbot_,
+    for (const HWND control : {speed_, invincible_, noclip_, infiniteAmmo_, darklingGod_, rapidFire_, noRecoil_, unlock_, maxDarkness_, aimbot_,
                                weapons_, give_, box_, skeleton_, tracers_, spawn_, spawnButton_})
         EnableWindow(control, player);
     EnableWindow(mission_, snapshot.canLoadMission);
@@ -287,6 +290,9 @@ void CheatsOverlay::refresh() {
     setCheck(invincible_, snapshot.invincible);
     setCheck(noclip_, snapshot.noclip);
     setCheck(infiniteAmmo_, snapshot.infiniteAmmo);
+    setCheck(darklingGod_, snapshot.darklingGod);
+    setCheck(rapidFire_, snapshot.rapidFire);
+    setCheck(noRecoil_, snapshot.noRecoil);
     setCheck(aimbot_, snapshot.aimbot);
     setCheck(box_, snapshot.espBox);
     setCheck(skeleton_, snapshot.espSkeleton);
@@ -345,6 +351,9 @@ void CheatsOverlay::restoreDefaults() {
     requestDeveloperInvincibility(false);
     requestDeveloperNoclip(false);
     requestDeveloperInfiniteAmmo(false);
+    requestDeveloperDarklingGod(false);
+    requestDeveloperRapidFire(false);
+    requestDeveloperNoRecoil(false);
     requestDeveloperAimbot(false);
     requestDeveloperEspBox(false);
     requestDeveloperEspSkeleton(false);
@@ -365,6 +374,9 @@ void CheatsOverlay::command(int id, int notification) {
     case kInvincible: if (clicked) requestDeveloperInvincibility(checked(invincible_)); break;
     case kNoclip: if (clicked) requestDeveloperNoclip(checked(noclip_)); break;
     case kInfiniteAmmo: if (clicked) requestDeveloperInfiniteAmmo(checked(infiniteAmmo_)); break;
+    case kDarklingGod: if (clicked) requestDeveloperDarklingGod(checked(darklingGod_)); break;
+    case kRapidFire: if (clicked) requestDeveloperRapidFire(checked(rapidFire_)); break;
+    case kNoRecoil: if (clicked) requestDeveloperNoRecoil(checked(noRecoil_)); break;
     case kUnlock: if (clicked && developerSnapshot().hasActivePlayer) requestDeveloperUnlockDarkness(); break;
     case kMaxDarkness: if (clicked && developerSnapshot().hasActivePlayer) requestDeveloperMaxDarkness(); break;
     case kAimbot: if (clicked) requestDeveloperAimbot(checked(aimbot_)); break;
@@ -498,7 +510,7 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
         const bool restoreFocus = foreground == closed || foreground == owner_;
         KillTimer(closed, kRefreshTimer);
         SetWindowLongPtrW(closed, GWLP_USERDATA, 0);
-        window_ = speed_ = invincible_ = noclip_ = infiniteAmmo_ = unlock_ = maxDarkness_ = aimbot_ =
+        window_ = speed_ = invincible_ = noclip_ = infiniteAmmo_ = darklingGod_ = rapidFire_ = noRecoil_ = unlock_ = maxDarkness_ = aimbot_ =
             weapons_ = give_ = box_ = skeleton_ = mission_ = load_ = shortcut_ = defaults_ = status_ =
             tracers_ = boxColor_ = boneColor_ = tracerColor_ = opacity_ = opacityValue_ = fov_ = fovValue_ =
             fovCircle_ = cameraFov_ = cameraFovValue_ = health_ = distance_ = names_ = maxDistance_ = maxDistanceValue_ = spawn_ = spawnButton_ = nullptr;

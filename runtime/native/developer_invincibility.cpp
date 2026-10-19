@@ -6,6 +6,9 @@
 namespace {
 std::atomic<uint8_t*> activeBase{nullptr};
 std::atomic<uint64_t> activePlayer{0};
+std::atomic<bool> darklingGod{false};
+// CWObject_CharDarkling (factory 82112FA8) installs this vtable.
+constexpr uint32_t kDarklingVtable = 0x820614D0;
 }
 
 namespace DarkRecomp::Native {
@@ -19,9 +22,20 @@ void configureDeveloperInvincibility(uint8_t* base, uint32_t actor, uint32_t sta
     activeBase.store(base, std::memory_order_release);
     activePlayer.store((uint64_t(actor) << 32) | state, std::memory_order_release);
 }
+void configureDeveloperDarklingGod(bool enabled) noexcept {
+    darklingGod.store(enabled, std::memory_order_release);
+}
 }
 
 void ApplyDeveloperInvincibilityMidAsmHook(PPCRegister& actor, PPCRegister& state, PPCRegister& flags) {
+    if (darklingGod.load(std::memory_order_acquire) && DarkRecomp::Native::memory) {
+        auto* base = DarkRecomp::Native::memory->base();
+        if (actor.u32 && !(actor.u32 & 3) && uint64_t(actor.u32) + 400 <= PPC_MEMORY_SIZE &&
+            PPC_LOAD_U32(actor.u32) == kDarklingVtable && PPC_LOAD_U32(actor.u32 + 396) == state.u32) {
+            flags.u64 |= 0x200;
+            return;
+        }
+    }
     const auto player = activePlayer.load(std::memory_order_acquire);
     if (!player || uint32_t(player >> 32) != actor.u32 || uint32_t(player) != state.u32 ||
         !DarkRecomp::Native::memory || activeBase.load(std::memory_order_acquire) != DarkRecomp::Native::memory->base()) return;

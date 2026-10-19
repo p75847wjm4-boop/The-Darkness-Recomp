@@ -12,7 +12,7 @@ struct DeveloperPlayerResult {
 };
 DeveloperPlayerResult updateDeveloperPlayer(PPCContext& ctx, uint8_t* base,
     uint32_t client, float speed, bool invincible, bool enabled, bool noclip = false,
-    bool infiniteAmmo = false);
+    bool infiniteAmmo = false, bool rapidFire = false, bool noRecoil = false, bool darklingGod = false);
 void resetDeveloperPlayer() noexcept;
 }
 void ApplyDeveloperHorizontalSpeedMidAsmHook(PPCRegister& actor, PPCRegister& state,

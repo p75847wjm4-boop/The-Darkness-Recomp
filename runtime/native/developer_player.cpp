@@ -40,10 +40,13 @@ void resetDeveloperPlayer() noexcept {
     configureDeveloperInvincibility(nullptr, 0, 0, false, false);
     configureDeveloperNoclip(nullptr, 0, 0, false, false);
     configureDeveloperInfiniteAmmo(nullptr, 0, false, false);
+    configureDeveloperWeaponMods(nullptr, 0, false, false, false);
+    configureDeveloperDarklingGod(false);
 }
 
 DeveloperPlayerResult updateDeveloperPlayer(PPCContext& ctx, uint8_t* base, uint32_t client,
-    float speed, bool invincible, bool enabled, bool noclip, bool infiniteAmmo) {
+    float speed, bool invincible, bool enabled, bool noclip, bool infiniteAmmo,
+    bool rapidFire, bool noRecoil, bool darklingGod) {
     const auto player = resolveDeveloperPlayer(ctx, base, client);
     const bool available = player.actor && player.state;
     const bool validSpeed = std::isfinite(speed) && speed >= 0.25f && speed <= 4;
@@ -51,6 +54,8 @@ DeveloperPlayerResult updateDeveloperPlayer(PPCContext& ctx, uint8_t* base, uint
     configureDeveloperInvincibility(base, player.actor, player.state, invincible, apply);
     configureDeveloperNoclip(base, player.actor, player.state, noclip, apply);
     configureDeveloperInfiniteAmmo(base, player.actor, infiniteAmmo, apply);
+    configureDeveloperWeaponMods(base, player.actor, rapidFire, noRecoil, apply);
+    configureDeveloperDarklingGod(apply && darklingGod);
     activePlayer.store(0, std::memory_order_release);
     if (apply && speed != 1) {
         activeBase.store(base, std::memory_order_release);
