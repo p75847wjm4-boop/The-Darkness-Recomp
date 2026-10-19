@@ -1,6 +1,7 @@
-"""List weapon template names and weapon models in each level archive.
+"""List weapon and NPC (ai_*) template names and weapon models in each level archive.
 
 Usage: python tools/list_weapon_templates.py [game dir] > weapons.txt
+       python tools/list_weapon_templates.py --npcs [game dir] > npcs.txt
 Reads Darkness/Content/Xdf/*.XDF (version 0x101: filename table, then one zlib
 payload) and reports every weapon_* name found in the decompressed payload.
 """
@@ -11,6 +12,9 @@ import zlib
 from pathlib import Path
 
 NAME = re.compile(rb'weapon_[A-Za-z0-9_]{2,40}')
+if '--npcs' in sys.argv:
+    sys.argv.remove('--npcs')
+    NAME = re.compile(rb'ai_[A-Za-z0-9_]{2,48}')
 
 
 def scan(path: Path):

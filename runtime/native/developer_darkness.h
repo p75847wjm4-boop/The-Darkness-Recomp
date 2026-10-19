@@ -25,4 +25,10 @@ DeveloperDarknessResult applyDeveloperDarkness(PPCContext& ctx, uint8_t* base,
 // resource registry stays frozen, so nothing is added that the client lacks.
 DeveloperDarknessResult grantDeveloperWeapon(PPCContext& ctx, uint8_t* base,
     const DeveloperPlayerHandles& player, std::string_view name, std::string_view title);
+
+// Spawns an object template (for example an NPC) 96 units in front of the
+// player through the server's original object factory, as the retail summon
+// command does. Templates the level never loaded fail and are reported.
+DeveloperDarknessResult spawnDeveloperObject(PPCContext& ctx, uint8_t* base,
+    const DeveloperPlayerHandles& player, std::string_view name);
 }

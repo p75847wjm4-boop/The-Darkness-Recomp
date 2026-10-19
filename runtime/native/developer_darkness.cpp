@@ -6,6 +6,8 @@
 #include <array>
 #include <cstdio>
 #include <exception>
+#include <bit>
+#include <cmath>
 #include <map>
 
 namespace DarkRecomp::Native {
@@ -423,6 +425,42 @@ DeveloperDarknessResult grantDeveloperWeapon(PPCContext& ctx, uint8_t* base,
         return {false, "The " + label + " could not be granted here."};
     std::fprintf(stderr, "[Weapons] Granted %.*s.\n", int(name.size()), name.data());
     return {true, "Gave the " + label + ". Grants may be autosaved."};
+}
+
+DeveloperDarknessResult spawnDeveloperObject(PPCContext& ctx, uint8_t* base,
+    const DeveloperPlayerHandles& player, std::string_view name) {
+    const std::string label(name);
+    if (name.empty() || name.size() > 63 || !currentPlayer(base, player))
+        return {false, "Spawning requires an active player."};
+    // Retail summon (82127D58): copy the actor matrix at +80, move 96 units
+    // along its forward row, then server virtual +588 creates the template:
+    // (server, name, matrix, owner id, 0, 0, -1, 0) -> object id or 0.
+    const auto create = method(base, player.server, 588);
+    if (!create || !object(base, player.actor, 160)) return {false, "Spawning is unavailable here."};
+    auto frame = ctx;
+    frame.r1.u32 -= 0x200;
+    PPC_STORE_U32(frame.r1.u32, ctx.r1.u32);
+    const auto matrix = frame.r1.u32 + 96, text = frame.r1.u32 + 176;
+    for (uint32_t i = 0; i < 64; i += 4) PPC_STORE_U32(matrix + i, PPC_LOAD_U32(player.actor + 80 + i));
+    const auto f = [&](uint32_t at) { return std::bit_cast<float>(PPC_LOAD_U32(at)); };
+    const auto put = [&](uint32_t at, float value) { PPC_STORE_U32(at, std::bit_cast<uint32_t>(value)); };
+    float fx = f(matrix), fy = f(matrix + 4);
+    const float length = std::sqrt(fx * fx + fy * fy);
+    if (!(length > 0.01f)) { fx = 1; fy = 0; } else { fx /= length; fy /= length; }
+    put(matrix + 48, f(matrix + 48) + fx * 96);
+    put(matrix + 52, f(matrix + 52) + fy * 96);
+    put(matrix + 56, f(matrix + 56) + 4);
+    for (size_t i = 0; i < name.size(); ++i) PPC_STORE_U8(uint32_t(text + i), uint8_t(name[i]));
+    PPC_STORE_U8(uint32_t(text + name.size()), 0);
+    auto call = frame;
+    call.r3.u64 = player.server; call.r4.u64 = text; call.r5.u64 = matrix;
+    call.r6.s64 = int16_t(PPC_LOAD_U16(player.actor + 368));
+    call.r7.u64 = 0; call.r8.u64 = 0; call.r9.s64 = -1; call.r10.u64 = 0;
+    PPCSafeIndirect(call, base, create);
+    const auto id = call.r3.s32;
+    if (id <= 0) return {false, "Could not spawn " + label + " here. It may not be loaded in this level."};
+    std::fprintf(stderr, "[Spawn] %s -> object %d\n", label.c_str(), id);
+    return {true, "Spawned " + label + "."};
 }
 
 DeveloperDarknessResult applyDeveloperDarkness(PPCContext& ctx, uint8_t* base,

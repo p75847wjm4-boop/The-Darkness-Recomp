@@ -21,7 +21,7 @@ namespace {
 std::mutex stateMutex;
 DeveloperSnapshot state;
 std::optional<std::string> pendingMission;
-std::optional<std::string> pendingWeapon;
+std::optional<std::string> pendingWeapon, pendingSpawn;
 bool pendingProbe = false;
 bool playerToolsEnabled = false;
 bool pendingDarknessUnlock = false;
@@ -31,7 +31,7 @@ bool panelVisible = false;
 std::atomic<bool> needsUpdate{false};
 
 void refreshWorkLocked() {
-    needsUpdate.store(panelVisible || pendingMission.has_value() || pendingWeapon.has_value() || pendingProbe || playerToolsEnabled ||
+    needsUpdate.store(panelVisible || pendingMission.has_value() || pendingWeapon.has_value() || pendingSpawn.has_value() || pendingProbe || playerToolsEnabled ||
         pendingDarknessUnlock || pendingDarknessLevel, std::memory_order_release);
 }
 
@@ -90,6 +90,29 @@ const DeveloperWeapon* weaponFor(std::string_view id) {
 }
 
 std::span<const DeveloperWeapon> developerWeapons() noexcept { return weapons; }
+
+namespace {
+// Retail giveall's darkling list (82A472C0).
+constexpr std::array<std::string_view, 15> spawnSuggestions{
+    "ai_darkling_berserker", "ai_darkling_gunner", "ai_darkling_kamikaze", "ai_darkling_lightkiller",
+    "ai_darkling_berserker_axe", "ai_darkling_berserker_bat", "ai_darkling_berserker_brokensword",
+    "ai_darkling_berserker_demolitionhammer", "ai_darkling_berserker_golfdriver",
+    "ai_darkling_berserker_hammer", "ai_darkling_berserker_informer", "ai_darkling_berserker_katana",
+    "ai_darkling_berserker_machete", "ai_darkling_berserker_pistol", "ai_darkling_berserker_saw"};
+}
+
+std::span<const std::string_view> developerSpawnSuggestions() noexcept { return spawnSuggestions; }
+
+bool requestDeveloperSpawn(std::string_view templateName) {
+    if (templateName.empty() || templateName.size() > 63 ||
+        std::any_of(templateName.begin(), templateName.end(), [](char c) {
+            return !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_');
+        })) return false;
+    std::lock_guard lock(stateMutex);
+    pendingSpawn = std::string(templateName);
+    requested("Spawn queued.");
+    return true;
+}
 
 bool developerToolsNeedsUpdate() noexcept {
     return needsUpdate.load(std::memory_order_acquire);
@@ -206,6 +229,7 @@ void resetDeveloperTools() {
     state = {};
     pendingMission.reset();
     pendingWeapon.reset();
+    pendingSpawn.reset();
     playerToolsEnabled = false;
     pendingDarknessUnlock = pendingDarknessLevel = pendingProbe = false;
     ++requestRevision;
@@ -215,7 +239,7 @@ void resetDeveloperTools() {
 }
 
 bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool missionReady) {
-    std::optional<std::string> mission, weapon;
+    std::optional<std::string> mission, weapon, spawn;
     float speed;
     bool invincible, noclip, infiniteAmmo, espBox, espSkeleton, espTracers, aimbot, enabled, unlockDarkness, maxDarkness, probe, overlay;
     uint64_t request;
@@ -225,6 +249,8 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         pendingMission.reset();
         weapon = std::move(pendingWeapon);
         pendingWeapon.reset();
+        spawn = std::move(pendingSpawn);
+        pendingSpawn.reset();
         speed = state.playerSpeed;
         invincible = state.invincible;
         noclip = state.noclip;
@@ -270,6 +296,9 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
     if (probe) {
         dumpDeveloperProbe(call, base, client);
         publish(request, canLoad, player.hasActivePlayer, "Probe written to the runtime log.", false, true);
+    } else if (spawn) {
+        const auto spawned = spawnDeveloperObject(call, base, resolveDeveloperPlayer(call, base, client), *spawn);
+        publish(request, canLoad, player.hasActivePlayer, spawned.status, false, true);
     } else if (weapon) {
         const auto handles = resolveDeveloperPlayer(call, base, client);
         const auto* entry = weaponFor(*weapon);

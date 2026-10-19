@@ -230,9 +230,13 @@ press F2 to resume mouse control. Options last for this session only.
   A weapon can only be given in a level that loads it.
 - **Visuals:** **Box ESP**, **Skeleton ESP** and **Tracers** (lines from the
   bottom of the screen) draw over every living NPC the game is animating, even
-  through walls, with their health. Each color button cycles through eight
+  through walls, with optional **Health numbers**. Each color button cycles through eight
   colors, and **Opacity** sets how see-through the drawing is. They include
   friendly and neutral characters.
+- **Spawn:** pick a darkling or type any template name and press **Spawn** to
+  create it 96 units in front of you. Only templates the current level has
+  loaded can spawn. `python tools\list_weapon_templates.py --npcs` lists the
+  NPC templates in each level.
 - **Mission:** choose a destination and press **Load**.
 - **Settings:** the F6 resolution shortcut, **Restore defaults** (turns every
   option off and resets speed), and **Dump** (diagnostic data for the runtime log).

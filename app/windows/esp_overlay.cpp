@@ -154,7 +154,8 @@ void EspOverlay::paint(HDC dc, int width, int height) {
         SelectObject(dc, pen_);
         wchar_t label[32];
         const int length = swprintf_s(label, L"%d", target.health);
-        if (length > 0) TextOutW(dc, left, int(head.y) - 14, label, length);
+        if (length > 0 && style.health && (view.box || view.skeleton))
+            TextOutW(dc, left, int(head.y) - 14, label, length);
     }
     SelectObject(dc, oldBrush);
     SelectObject(dc, oldPen);

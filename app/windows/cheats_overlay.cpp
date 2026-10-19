@@ -22,9 +22,9 @@ constexpr UINT_PTR kRefreshTimer = 1;
 enum : int {
     kSpeed = 2001, kInvincible, kNoclip, kInfiniteAmmo, kUnlock, kMaxDarkness, kAimbot,
     kWeapons, kGive, kBox, kSkeleton, kMission, kLoad, kShortcut, kDefaults, kProbe,
-    kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov
+    kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov, kHealth, kSpawnName, kSpawn
 };
-constexpr int kWidth = 640, kHeight = 600;
+constexpr int kWidth = 640, kHeight = 704;
 constexpr BYTE kOpacity = 235;
 constexpr COLORREF kBackground = RGB(12, 12, 14), kField = RGB(28, 28, 32),
                    kText = RGB(230, 230, 230), kDim = RGB(140, 140, 140);
@@ -81,7 +81,8 @@ CheatsOverlay::~CheatsOverlay() {
 
 bool CheatsOverlay::dropDownOpen() const {
     return (speed_ && SendMessageW(speed_, CB_GETDROPPEDSTATE, 0, 0)) ||
-           (mission_ && SendMessageW(mission_, CB_GETDROPPEDSTATE, 0, 0));
+           (mission_ && SendMessageW(mission_, CB_GETDROPPEDSTATE, 0, 0)) ||
+           (spawn_ && SendMessageW(spawn_, CB_GETDROPPEDSTATE, 0, 0));
 }
 
 bool CheatsOverlay::handleMessage(MSG& message) {
@@ -204,37 +205,50 @@ void CheatsOverlay::createControls() {
     give_ = button(window_, L"GIVE", 26, 552, 90, kGive);
 
     // Right column: visuals, mission, settings, status.
-    group(window_, L"VISUALS", 328, 40, 300, 176);
+    group(window_, L"VISUALS", 328, 40, 300, 204);
     box_ = check(window_, L"BOX ESP", 342, 62, 130, kBox);
     boxColor_ = button(window_, L"", 482, 60, 132, kBoxColor);
     skeleton_ = check(window_, L"SKELETON ESP", 342, 92, 130, kSkeleton);
     boneColor_ = button(window_, L"", 482, 90, 132, kBoneColor);
     tracers_ = check(window_, L"TRACERS", 342, 122, 130, kTracers);
     tracerColor_ = button(window_, L"", 482, 120, 132, kTracerColor);
-    control(window_, L"STATIC", L"OPACITY", 0, 342, 162, 64, 18);
-    opacity_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 406, 158, 160, 26, kOpacitySlider);
+    health_ = check(window_, L"HEALTH NUMBERS", 342, 152, 270, kHealth);
+    control(window_, L"STATIC", L"OPACITY", 0, 342, 190, 64, 18);
+    opacity_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 406, 186, 160, 26, kOpacitySlider);
     SendMessageW(opacity_, TBM_SETRANGE, FALSE, MAKELPARAM(20, 100));
-    opacityValue_ = control(window_, L"STATIC", L"", 0, 570, 162, 50, 18);
-    control(window_, L"STATIC", L"COLOR BUTTONS CYCLE THROUGH 8 COLORS.", 0, 342, 190, 276, 18);
+    opacityValue_ = control(window_, L"STATIC", L"", 0, 570, 190, 50, 18);
+    control(window_, L"STATIC", L"COLOR BUTTONS CYCLE THROUGH 8 COLORS.", 0, 342, 218, 276, 18);
 
-    group(window_, L"MISSION", 328, 224, 300, 92);
-    mission_ = control(window_, L"COMBOBOX", L"", comboStyle, 342, 246, 272, 320, kMission);
+    group(window_, L"MISSION", 328, 252, 300, 92);
+    mission_ = control(window_, L"COMBOBOX", L"", comboStyle, 342, 274, 272, 320, kMission);
     for (const auto& item : developerMissions()) {
         const auto title = upper(item.title);
         SendMessageW(mission_, CB_ADDSTRING, 0, LPARAM(title.c_str()));
     }
     SendMessageW(mission_, CB_SETCURSEL, 0, 0);
-    load_ = button(window_, L"LOAD", 342, 280, 90, kLoad);
+    load_ = button(window_, L"LOAD", 342, 308, 90, kLoad);
 
-    group(window_, L"SETTINGS", 328, 324, 300, 92);
-    shortcut_ = check(window_, L"ENABLE F6 RESOLUTION SHORTCUT", 342, 346, 276, kShortcut);
-    defaults_ = button(window_, L"RESTORE DEFAULTS", 342, 378, 140, kDefaults);
-    button(window_, L"DUMP", 492, 378, 122, kProbe);
+    group(window_, L"SPAWN", 328, 352, 300, 104);
+    // Editable: pick a darkling or type any template name from the level.
+    spawn_ = control(window_, L"COMBOBOX", L"", CBS_DROPDOWN | CBS_AUTOHSCROLL | CBS_NOINTEGRALHEIGHT |
+                     WS_VSCROLL | WS_TABSTOP, 342, 374, 272, 320, kSpawnName);
+    for (const auto name : developerSpawnSuggestions()) {
+        const std::wstring text(name.begin(), name.end());
+        SendMessageW(spawn_, CB_ADDSTRING, 0, LPARAM(text.c_str()));
+    }
+    SendMessageW(spawn_, CB_SETCURSEL, 0, 0);
+    spawnButton_ = button(window_, L"SPAWN", 342, 408, 90, kSpawn);
+    control(window_, L"STATIC", L"OR TYPE A TEMPLATE NAME.", 0, 440, 412, 176, 18);
 
-    control(window_, L"STATIC", L"STATUS", 0, 330, 428, 296, 18);
-    status_ = control(window_, L"STATIC", L"", SS_LEFT, 330, 448, 296, 88);
+    group(window_, L"SETTINGS", 328, 464, 300, 92);
+    shortcut_ = check(window_, L"ENABLE F6 RESOLUTION SHORTCUT", 342, 486, 276, kShortcut);
+    defaults_ = button(window_, L"RESTORE DEFAULTS", 342, 518, 140, kDefaults);
+    button(window_, L"DUMP", 492, 518, 122, kProbe);
+
+    control(window_, L"STATIC", L"STATUS", 0, 330, 566, 296, 18);
+    status_ = control(window_, L"STATIC", L"", SS_LEFT, 330, 586, 296, 64);
     control(window_, L"STATIC", L"F7 OR ESC CLOSES. MISSION LOADS, DARKNESS GRANTS AND GIVEN WEAPONS MAY AUTOSAVE.",
-            0, 330, 540, 296, 48);
+            0, 330, 652, 296, 44);
     refreshStyle();
 }
 
@@ -243,7 +257,7 @@ void CheatsOverlay::refresh() {
     const auto snapshot = developerSnapshot();
     const bool player = snapshot.hasActivePlayer;
     for (const HWND control : {speed_, invincible_, noclip_, infiniteAmmo_, unlock_, maxDarkness_, aimbot_,
-                               weapons_, give_, box_, skeleton_, tracers_})
+                               weapons_, give_, box_, skeleton_, tracers_, spawn_, spawnButton_})
         EnableWindow(control, player);
     EnableWindow(mission_, snapshot.canLoadMission);
     EnableWindow(load_, snapshot.canLoadMission);
@@ -294,6 +308,19 @@ void CheatsOverlay::giveWeapon() {
     refresh();
 }
 
+void CheatsOverlay::spawn() {
+    wchar_t text[96]{};
+    GetWindowTextW(spawn_, text, int(std::size(text)));
+    std::string name;
+    for (const wchar_t* c = text; *c; ++c) if (*c < 128 && *c > 32) name.push_back(char(*c));
+    if (!requestDeveloperSpawn(name)) {
+        SetWindowTextW(status_, L"TEMPLATE NAMES USE ONLY LETTERS, DIGITS AND UNDERSCORES.");
+        displayedStatus_.clear();
+        return;
+    }
+    refresh();
+}
+
 void CheatsOverlay::restoreDefaults() {
     requestDeveloperSpeed(1.f);
     requestDeveloperInvincibility(false);
@@ -329,6 +356,8 @@ void CheatsOverlay::command(int id, int notification) {
     case kBoneColor: if (clicked) cycleColor(espStyle().bone, boneColor_, L"BONES"); return;
     case kTracerColor: if (clicked) cycleColor(espStyle().tracer, tracerColor_, L"LINES"); return;
     case kFovCircle: if (clicked) espStyle().fovCircle = checked(fovCircle_); return;
+    case kHealth: if (clicked) espStyle().health = checked(health_); return;
+    case kSpawn: if (clicked) spawn(); return;
     case kWeapons: if (notification == LBN_DBLCLK) giveWeapon(); return;
     case kGive: if (clicked) giveWeapon(); return;
     case kLoad: if (clicked) loadMission(); return;
@@ -359,6 +388,7 @@ void CheatsOverlay::refreshStyle() {
     SendMessageW(opacity_, TBM_SETPOS, TRUE, LPARAM(style.opacity * 100 / 255));
     SendMessageW(fov_, TBM_SETPOS, TRUE, LPARAM(style.aimFov));
     setCheck(fovCircle_, style.fovCircle);
+    setCheck(health_, style.health);
     const float camera = fieldOfViewSetting();
     SendMessageW(cameraFov_, TBM_SETPOS, TRUE, LPARAM(camera == kOriginalFov ? 59 : int(camera + 0.5f)));
     SetWindowTextW(cameraFovValue_, camera == kOriginalFov ? L"ORIGINAL" :
@@ -437,7 +467,7 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
         window_ = speed_ = invincible_ = noclip_ = infiniteAmmo_ = unlock_ = maxDarkness_ = aimbot_ =
             weapons_ = give_ = box_ = skeleton_ = mission_ = load_ = shortcut_ = defaults_ = status_ =
             tracers_ = boxColor_ = boneColor_ = tracerColor_ = opacity_ = opacityValue_ = fov_ = fovValue_ =
-            fovCircle_ = cameraFov_ = cameraFovValue_ = nullptr;
+            fovCircle_ = cameraFov_ = cameraFovValue_ = health_ = spawn_ = spawnButton_ = nullptr;
         displayedStatus_.clear();
         releaseInputGate();
         if (restoreFocus && IsWindow(owner_)) SetFocus(owner_);

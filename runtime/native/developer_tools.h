@@ -51,6 +51,10 @@ void requestDeveloperEspSkeleton(bool enabled);
 void requestDeveloperEspTracers(bool enabled);
 void requestDeveloperAimbot(bool enabled);
 bool requestDeveloperWeapon(std::string_view id);
+// Template names: letters, digits and underscores, up to 63 characters.
+bool requestDeveloperSpawn(std::string_view templateName);
+// Darkling templates every campaign level loads for the summon power.
+std::span<const std::string_view> developerSpawnSuggestions() noexcept;
 void requestDeveloperProbe();
 void requestDeveloperUnlockDarkness();
 void requestDeveloperMaxDarkness();

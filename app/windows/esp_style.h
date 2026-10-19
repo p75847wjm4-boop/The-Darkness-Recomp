@@ -13,6 +13,7 @@ struct EspStyle {
     unsigned box = 0, bone = 6, tracer = 3;
     BYTE opacity = 255;
     bool fovCircle = false;
+    bool health = true;
     float aimFov = 25;
 };
 
