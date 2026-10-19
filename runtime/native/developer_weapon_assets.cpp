@@ -7,9 +7,6 @@
 #include <bcrypt.h>
 #include <algorithm>
 #include <array>
-#include <atomic>
-#include <map>
-#include <mutex>
 #include <cstring>
 #include <cstdio>
 #include <fstream>
@@ -345,10 +342,7 @@ struct GuestBuffer {
         }
     }
 };
-// With needed < size, stop once the first needed payload bytes are produced.
-Bytes inflate(PPCContext& context, uint8_t* base, std::span<const uint8_t> compressed, uint32_t size,
-              uint32_t needed = UINT32_MAX) {
-    const bool partial = needed < size;
+Bytes inflate(PPCContext& context, uint8_t* base, std::span<const uint8_t> compressed, uint32_t size) {
     if (!memory || base != memory->base() || compressed.empty() || compressed.size() > UINT32_MAX ||
         size >= UINT32_MAX) invalid("Invalid developer weapon decompression context.");
     constexpr uint32_t chunk = 65536;
@@ -368,7 +362,7 @@ Bytes inflate(PPCContext& context, uint8_t* base, std::span<const uint8_t> compr
     // Every successful step consumes input or produces output. The original
     // decoder can retain buffered bits between chunks, including its trailer.
     const auto maximumSteps = (compressed.size() + size) / chunk * 2 + 1024;
-    for (size_t iteration = 0; iteration < maximumSteps && status != 1 && !(partial && produced >= needed); ++iteration) {
+    for (size_t iteration = 0; iteration < maximumSteps && status != 1; ++iteration) {
         if (!PPC_LOAD_U32(stream.address + 4) && supplied < compressed.size()) {
             const auto count = uint32_t((std::min)(size_t(chunk), compressed.size() - supplied));
             std::memcpy(base + input.address, compressed.data() + supplied, count);
@@ -396,11 +390,6 @@ Bytes inflate(PPCContext& context, uint8_t* base, std::span<const uint8_t> compr
         if (!status && oldInput == PPC_LOAD_U32(stream.address + 8) &&
             oldOutput == PPC_LOAD_U32(stream.address + 20))
             invalid("Developer weapon decompression did not progress.");
-    }
-    if (partial) {
-        if (produced < needed) invalid("Developer donor decompression ended early.");
-        payload.resize(produced);
-        return payload;
     }
     if (status != 1 || supplied != compressed.size() || PPC_LOAD_U32(stream.address + 4) != 0 ||
         PPC_LOAD_U32(stream.address + 8) != compressed.size() ||
@@ -721,149 +710,6 @@ DeveloperWeaponAssets prepareDeveloperWeaponAssets(PPCContext& ctx, uint8_t* bas
         result.emplace("content\\" + name, std::move(prepared));
     }
     return result;
-}
-
-namespace {
-// Header-only scan of one level archive: every cached file's name, logical
-// size and recorded read blocks (offset, length, payload stream offset).
-struct DonorBlock { uint32_t offset, length, stream; };
-struct DonorRecord { std::filesystem::path archive; uint32_t size = 0; uint64_t covered = 0; };
-Bytes readPrefix(const std::filesystem::path& path, uint64_t size) {
-    std::ifstream input(path, std::ios::binary);
-    Bytes bytes(static_cast<size_t>(size));
-    if (!input || !input.read(reinterpret_cast<char*>(bytes.data()), bytes.size()))
-        invalid("Cannot read developer donor archive header.");
-    return bytes;
-}
-Bytes archiveTables(const std::filesystem::path& path) {
-    const auto total = std::filesystem::file_size(path);
-    auto bytes = readPrefix(path, (std::min)(total, uint64_t(8)));
-    uint64_t need = 8ull + word(bytes, 4) + 4;
-    if (need > total) invalid("Truncated developer donor archive.");
-    bytes = readPrefix(path, need);
-    need += uint64_t(word(bytes, need - 4)) * 24 + 4;
-    if (need > total) invalid("Truncated developer donor archive.");
-    bytes = readPrefix(path, need);
-    need += uint64_t(word(bytes, need - 4)) * 20 + 6;
-    if (need > total) invalid("Truncated developer donor archive.");
-    return readPrefix(path, need);
-}
-template<class Visit> void visitArchive(std::span<const uint8_t> archive, Visit&& visit) {
-    const auto info = header(archive);
-    for (uint32_t index = 0; index < info.fileCount; ++index) {
-        const auto record = info.files + size_t(index) * 24;
-        const auto nameAt = word(archive, record);
-        if (nameAt >= info.strings) invalid("Invalid developer donor filename offset.");
-        const auto first = archive.begin() + 8 + nameAt, stop = archive.begin() + 8 + info.strings;
-        const auto end = std::find(first, stop, uint8_t(0));
-        if (end == stop) invalid("Unterminated developer donor filename.");
-        const auto name = normalized(std::string_view(reinterpret_cast<const char*>(&*first), size_t(end - first)));
-        const auto size = word(archive, record + 12);
-        std::vector<DonorBlock> blocks;
-        for (auto block = word(archive, record + 4); block != absent && blocks.size() <= info.blockCount;) {
-            if (block >= info.blockCount) invalid("Invalid developer donor read link.");
-            const auto at = info.blocks + size_t(block) * 20;
-            const DonorBlock read{word(archive, at + 12), word(archive, at + 8), word(archive, at + 16)};
-            if (read.offset > size || read.length > size - read.offset ||
-                uint64_t(read.stream) + read.length > info.payloadSize)
-                invalid("Invalid developer donor read range.");
-            blocks.push_back(read);
-            block = word(archive, at);
-        }
-        visit(name, size, blocks, info);
-    }
-}
-std::mutex donorMutex;
-std::atomic<bool> donorsEnabled{false};
-bool donorIndexed = false;
-std::map<std::string, DonorRecord> donorIndex;
-std::map<std::string, std::shared_ptr<const CachedWeaponFile>> donorFiles;
-
-void buildDonorIndex(const std::filesystem::path& gameDirectory) {
-    donorIndexed = true;
-    std::error_code error;
-    for (const auto& entry : std::filesystem::directory_iterator(gameDirectory / L"Content/Xdf", error)) {
-        auto extension = entry.path().extension().string();
-        for (auto& c : extension) if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
-        if (extension != ".xdf") continue;
-        try {
-            const auto tables = archiveTables(entry.path());
-            visitArchive(tables, [&](const std::string& name, uint32_t size,
-                                     const std::vector<DonorBlock>& blocks, const Header&) {
-                uint64_t covered = 0;
-                for (const auto& block : blocks) covered += block.length;
-                auto& best = donorIndex[name];
-                if (covered > best.covered) best = {entry.path(), size, covered};
-            });
-        } catch (const std::exception& failure) {
-            std::fprintf(stderr, "[Donor] Skipped '%ls': %s\n", entry.path().filename().c_str(), failure.what());
-        }
-    }
-    std::fprintf(stderr, "[Donor] Indexed %zu files from level archives.\n", donorIndex.size());
-}
-
-std::shared_ptr<const CachedWeaponFile> extractDonor(PPCContext& ctx, uint8_t* base,
-    const std::filesystem::path& gameDirectory, const std::string& name, const DonorRecord& record) {
-    const auto tables = archiveTables(record.archive);
-    std::vector<DonorBlock> blocks;
-    Header info;
-    visitArchive(tables, [&](const std::string& found, uint32_t size,
-                             const std::vector<DonorBlock>& reads, const Header& archiveInfo) {
-        if (found == name && size == record.size) { blocks = reads; info = archiveInfo; }
-    });
-    if (blocks.empty()) invalid("Developer donor file has no cached reads.");
-    File file{name, record.size, {}};
-    uint32_t needed = 0;
-    for (const auto& block : blocks) needed = (std::max)(needed, block.stream + block.length);
-    const auto path = gameDirectory.parent_path() / L"build_native/run/developer-donors" /
-        record.archive.stem() / std::filesystem::path(name);
-    std::error_code error;
-    if (!std::filesystem::exists(path, error) || std::filesystem::file_size(path, error) != record.size) {
-        const auto archive = read(record.archive);
-        const auto payload = inflate(ctx, base, std::span(archive).subspan(info.stream),
-                                     uint32_t(info.payloadSize), needed);
-        for (const auto& block : blocks)
-            DeveloperWeaponAssetDetail::mergeFile(file, File{name, record.size, {{block.offset,
-                Bytes(payload.begin() + block.stream, payload.begin() + block.stream + block.length)}}});
-        std::filesystem::remove(path, error);
-        store(path, file);
-    } else {
-        for (const auto& block : blocks)
-            DeveloperWeaponAssetDetail::mergeFile(file, File{name, record.size, {{block.offset,
-                Bytes(block.length)}}});
-    }
-    auto prepared = std::make_shared<CachedWeaponFile>();
-    prepared->path = path; prepared->size = record.size;
-    // mergeFile leaves sorted, coalesced segments.
-    for (const auto& segment : file.segments)
-        prepared->ranges.emplace_back(segment.offset, uint32_t(segment.bytes.size()));
-    return prepared;
-}
-}
-
-void enableDeveloperDonorFiles() noexcept { donorsEnabled.store(true, std::memory_order_release); }
-
-std::shared_ptr<const CachedWeaponFile> developerDonorFile(PPCContext& ctx, uint8_t* base,
-    const std::filesystem::path& gameDirectory, std::string_view key) {
-    if (!donorsEnabled.load(std::memory_order_acquire)) return {};
-    constexpr std::string_view content = "content\\";
-    if (!key.starts_with(content)) return {};
-    const std::string name(key.substr(content.size()));
-    if (!name.starts_with("models\\") && !name.starts_with("anim\\")) return {};
-    std::lock_guard lock(donorMutex);
-    if (const auto found = donorFiles.find(name); found != donorFiles.end()) return found->second;
-    auto& prepared = donorFiles[name];
-    try {
-        if (!donorIndexed) buildDonorIndex(gameDirectory);
-        const auto record = donorIndex.find(name);
-        if (record == donorIndex.end()) return {};
-        prepared = extractDonor(ctx, base, gameDirectory, name, record->second);
-        std::fprintf(stderr, "[Donor] Loaded '%s' from %ls.\n", name.c_str(),
-                     record->second.archive.filename().c_str());
-    } catch (const std::exception& failure) {
-        std::fprintf(stderr, "[Donor] Cannot load '%s': %s\n", name.c_str(), failure.what());
-    }
-    return prepared;
 }
 }
 
