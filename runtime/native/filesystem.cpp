@@ -4,6 +4,7 @@
 #include "storage.h"
 #include "file_query_compat.h"
 #include "developer_tools.h"
+#include "developer_weapon_assets.h"
 #include "renderer/engine/engine_performance.h"
 #include <winternl.h>
 #include <algorithm>
@@ -70,7 +71,7 @@ struct PathResult {
     uint32_t status = 0;
     std::shared_ptr<const CachedWeaponFile> cachedWeaponFile;
 };
-PathResult resolve(uint32_t attributes) {
+PathResult resolve(uint32_t attributes, PPCContext& ctx) {
     PathResult result;
     if (!attributes) { result.status = invalidParameter; return result; }
     if (!fileGuestSpan(attributes, 12, false)) { result.status = accessViolation; return result; }
@@ -172,6 +173,18 @@ PathResult resolve(uint32_t attributes) {
             result.cachedWeaponFile = std::move(cached);
             result.path = result.cachedWeaponFile->path;
             result.path.make_preferred();
+        } else if (!cached && !std::filesystem::exists(result.path, error) && !error) {
+            // A spawned character may need models only other levels cache.
+            auto key = result.path.lexically_relative(memory->gameDirectory()).string();
+            for (char& c : key) {
+                if (c == '/') c = '\\';
+                if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+            }
+            if (auto donor = developerDonorFile(ctx, memory->base(), memory->gameDirectory(), key)) {
+                result.cachedWeaponFile = std::move(donor);
+                result.path = result.cachedWeaponFile->path;
+                result.path.make_preferred();
+            }
         }
     }
     return result;
@@ -186,7 +199,7 @@ uint32_t create(PPCContext& ctx, uint32_t out, uint32_t access, uint32_t attribu
         (allocationPointer && !fileGuestSpan(allocationPointer, 8, false))) {
         ioStatus(ios, accessViolation, 0); return accessViolation;
     }
-    PathResult resolved = resolve(attributes);
+    PathResult resolved = resolve(attributes, ctx);
     uint32_t status = resolved.status;
     constexpr uint32_t writeAccess = GENERIC_WRITE | GENERIC_ALL | DELETE | FILE_WRITE_DATA | FILE_APPEND_DATA |
         FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES;
@@ -241,7 +254,7 @@ PPC_FUNC(__imp__NtQueryFullAttributesFile) {
     uint32_t attributes = ctx.r3.u32, out = ctx.r4.u32;
     if (!out) { ctx.r3.u64 = invalidParameter; return; }
     if (!fileGuestSpan(out, 56, true)) { ctx.r3.u64 = accessViolation; return; }
-    PathResult resolved = resolve(attributes);
+    PathResult resolved = resolve(attributes, ctx);
     uint32_t status = resolved.status;
     if (!status) {
         std::wstring nativePath = L"\\??\\" + resolved.path.wstring();

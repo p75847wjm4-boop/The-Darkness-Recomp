@@ -5,6 +5,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -27,6 +28,13 @@ using DeveloperWeaponAssets = std::map<std::string, std::shared_ptr<const Cached
 // Content-relative paths, including "content\\". Throws on invalid sources.
 DeveloperWeaponAssets prepareDeveloperWeaponAssets(PPCContext& ctx, uint8_t* base,
     const std::filesystem::path& gameDirectory);
+
+// Missing Content\Models and Content\Anim files are served from the level
+// archive (Content/Xdf) that cached the most of them, once enabled. Keys are
+// lowercase Content-relative paths, including "content\\".
+void enableDeveloperDonorFiles() noexcept;
+std::shared_ptr<const CachedWeaponFile> developerDonorFile(PPCContext& ctx, uint8_t* base,
+    const std::filesystem::path& gameDirectory, std::string_view key);
 
 namespace DeveloperWeaponAssetDetail {
 struct Segment { uint32_t offset = 0; std::vector<uint8_t> bytes; };

@@ -1,4 +1,5 @@
 #include "developer_darkness.h"
+#include "developer_weapon_assets.h"
 #include "developer_player_lookup.h"
 #include "runtime.h"
 #include "ppc_recomp_shared.h"
@@ -442,6 +443,7 @@ DeveloperDarknessResult spawnDeveloperObject(PPCContext& ctx, uint8_t* base,
     // (server, name, matrix, owner id, 0, 0, -1, 0) -> object id or 0.
     const auto create = method(base, player.server, 588);
     if (!create || !object(base, player.actor, 160)) return {false, "Spawning is unavailable here."};
+    enableDeveloperDonorFiles();
     auto frame = ctx;
     frame.r1.u32 -= 0x200;
     PPC_STORE_U32(frame.r1.u32, ctx.r1.u32);
