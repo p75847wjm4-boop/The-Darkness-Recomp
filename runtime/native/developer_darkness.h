@@ -30,5 +30,5 @@ DeveloperDarknessResult grantDeveloperWeapon(PPCContext& ctx, uint8_t* base,
 // player through the server's original object factory, as the retail summon
 // command does. Templates the level never loaded fail and are reported.
 DeveloperDarknessResult spawnDeveloperObject(PPCContext& ctx, uint8_t* base,
-    const DeveloperPlayerHandles& player, std::string_view name);
+    const DeveloperPlayerHandles& player, std::string_view name, uint32_t client);
 }

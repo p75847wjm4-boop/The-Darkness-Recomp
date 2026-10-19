@@ -303,7 +303,7 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         dumpDeveloperProbe(call, base, client);
         publish(request, canLoad, player.hasActivePlayer, "Probe written to the runtime log.", false, true);
     } else if (spawn) {
-        const auto spawned = spawnDeveloperObject(call, base, resolveDeveloperPlayer(call, base, client), *spawn);
+        const auto spawned = spawnDeveloperObject(call, base, resolveDeveloperPlayer(call, base, client), *spawn, client);
         publish(request, canLoad, player.hasActivePlayer, spawned.status, false, true);
     } else if (weapon) {
         const auto handles = resolveDeveloperPlayer(call, base, client);

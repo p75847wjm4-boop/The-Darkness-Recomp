@@ -9,6 +9,8 @@
 #include <bit>
 #include <cmath>
 #include <map>
+#include <span>
+#include <vector>
 
 namespace DarkRecomp::Native {
 namespace {
@@ -129,8 +131,10 @@ uint32_t findItem(PPCContext& ctx, uint8_t* base, uint32_t inventory, uint32_t n
     return call.r3.u32;
 }
 
-bool clientAncientResources(PPCContext& ctx, uint8_t* base, const DeveloperPlayerHandles& player,
-    uint32_t client, uint32_t resources, const std::array<uint16_t, 2>& models) {
+// Mirror late server resource additions into the client table and precache
+// new models. Every listed model must end up prepared; an empty list syncs all.
+bool clientResources(PPCContext& ctx, uint8_t* base, const DeveloperPlayerHandles& player,
+    uint32_t client, uint32_t resources, std::span<const uint16_t> models) {
     if (!client) return true; // Direct progression callers may have no renderer.
     if (!object(base, client, 604) ||
         (PPC_LOAD_U32(client) != 0x820807E0 && PPC_LOAD_U32(client) != 0x82081BF0) ||
@@ -144,8 +148,9 @@ bool clientAncientResources(PPCContext& ctx, uint8_t* base, const DeveloperPlaye
     uint32_t sourceData, sourceCount, targetData, targetCount;
     if (!array(base, PPC_LOAD_U32(resources + 12), 32768, sourceData, sourceCount) ||
         !array(base, PPC_LOAD_U32(target + 12), 32768, targetData, targetCount) ||
-        !models[0] || !models[1] || models[0] >= sourceCount || models[1] >= sourceCount) return false;
-    if (!PPC_LOAD_U32(sourceData + models[0] * 4) || !PPC_LOAD_U32(sourceData + models[1] * 4)) return false;
+        std::any_of(models.begin(), models.end(), [&](uint16_t m) { return !m || m >= sourceCount; })) return false;
+    if (std::any_of(models.begin(), models.end(), [&](uint16_t m) { return !PPC_LOAD_U32(sourceData + m * 4); }))
+        return false;
     struct PendingPrecache {
         uint32_t source = 0, target = 0, provider = 0;
         std::map<uint32_t, uint32_t> additions;
@@ -154,9 +159,10 @@ bool clientAncientResources(PPCContext& ctx, uint8_t* base, const DeveloperPlaye
     const auto provider = PPC_LOAD_U32(resources + 80);
     if (pending.source != resources || pending.target != target || pending.provider != provider)
         pending = {resources, target, provider, {}};
-    const auto first = (std::min)({targetCount, uint32_t(models[0]), uint32_t(models[1])});
-    std::fprintf(stderr, "[Weapons] Preparing client resources: server=%08x client=%08x counts=%u/%u models=%u/%u renderer=%08x.\n",
-        resources, target, sourceCount, targetCount, models[0], models[1], renderer);
+    uint32_t first = targetCount;
+    for (const auto model : models) first = (std::min)(first, uint32_t(model));
+    std::fprintf(stderr, "[Weapons] Preparing client resources: server=%08x client=%08x counts=%u/%u models=%zu renderer=%08x.\n",
+        resources, target, sourceCount, targetCount, models.size(), renderer);
     // Retail's fixed-ID client receiver (824A7C48) runs only during world
     // loading. Late server additions do not reach its frozen client table.
     // Preserve the existing SmartRefs and append empty slots through the same
@@ -215,7 +221,7 @@ bool clientAncientResources(PPCContext& ctx, uint8_t* base, const DeveloperPlaye
     // primitive cache or material images. Use CWRes_Model's original virtual
     // precache, with the same CXR engine supplied by client preload 8249E448.
     const auto modelToken = PPC_LOAD_U32(0x82A45900);
-    std::array<bool, 2> prepared{};
+    std::vector<bool> prepared(models.size(), false);
     for (uint32_t i = 0; i < sourceCount; ++i) {
         const auto resource = PPC_LOAD_U32(targetData + i * 4);
         // An interrupted registration may already have retained an earlier
@@ -241,16 +247,15 @@ bool clientAncientResources(PPCContext& ctx, uint8_t* base, const DeveloperPlaye
                 if (!precache) return false;
                 call = frame; call.r3.u64 = resource; call.r4.u64 = renderer;
                 PPCSafeIndirect(call, base, precache);
-                if (i == models[0]) prepared[0] = true;
-                if (i == models[1]) prepared[1] = true;
+                for (size_t m = 0; m < models.size(); ++m) if (i == models[m]) prepared[m] = true;
                 break;
             }
             descriptor = PPC_LOAD_U32(descriptor + 8);
         }
     }
-    const bool complete = prepared[0] && prepared[1] &&
-        PPC_LOAD_U32(targetData + models[0] * 4) == PPC_LOAD_U32(sourceData + models[0] * 4) &&
-        PPC_LOAD_U32(targetData + models[1] * 4) == PPC_LOAD_U32(sourceData + models[1] * 4);
+    bool complete = std::all_of(prepared.begin(), prepared.end(), [](bool ready) { return ready; });
+    for (const auto model : models)
+        complete = complete && PPC_LOAD_U32(targetData + model * 4) == PPC_LOAD_U32(sourceData + model * 4);
     if (complete) pending.additions.clear();
     return complete;
 }
@@ -381,7 +386,7 @@ bool grantAncientWeapons(PPCContext& ctx, uint8_t* base, const DeveloperPlayerHa
         if (!item || !repairPair(item, name)) return false;
         models[i] = PPC_LOAD_U16(item + 466);
     }
-    if (!clientAncientResources(ctx, base, player, client, resources, models)) {
+    if (!clientResources(ctx, base, player, client, resources, models)) {
         failure = "Darkness gun client resources incomplete. Retry with an active player. Grants may be autosaved.";
         std::fprintf(stderr, "[Weapons] Client resource preparation failed: client=%08x serverContext=%08x.\n", client, resources);
         return false;
@@ -428,7 +433,7 @@ DeveloperDarknessResult grantDeveloperWeapon(PPCContext& ctx, uint8_t* base,
 }
 
 DeveloperDarknessResult spawnDeveloperObject(PPCContext& ctx, uint8_t* base,
-    const DeveloperPlayerHandles& player, std::string_view name) {
+    const DeveloperPlayerHandles& player, std::string_view name, uint32_t client) {
     const std::string label(name);
     if (name.empty() || name.size() > 63 || !currentPlayer(base, player))
         return {false, "Spawning requires an active player."};
@@ -473,8 +478,12 @@ DeveloperDarknessResult spawnDeveloperObject(PPCContext& ctx, uint8_t* base,
     PPCSafeIndirect(call, base, create);
     const auto id = call.r3.s32;
     if (id <= 0) return {false, "Could not spawn " + label + ". The game has no template with that name here."};
+    // New model/animation IDs exist only in the server table until mirrored and
+    // precached on the client; otherwise newly loaded body parts are invisible.
+    const bool mirrored = clientResources(ctx, base, player, client, resources, {});
     std::fprintf(stderr, "[Spawn] %s -> object %d\n", label.c_str(), id);
-    return {true, "Spawned " + label + ". If it is invisible, its model is not loaded in this level."};
+    if (!mirrored) return {true, "Spawned " + label + ", but its new models could not be prepared for display."};
+    return {true, "Spawned " + label + "."};
 }
 
 DeveloperDarknessResult applyDeveloperDarkness(PPCContext& ctx, uint8_t* base,
