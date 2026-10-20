@@ -273,9 +273,9 @@ void CheatsOverlay::createControls() {
 
     group(window_, L"AIMBOT TUNING", 640, 140, 304, 92);
     aimMode_ = button(window_, L"", 654, 162, 276, kAimMode);
-    control(window_, L"STATIC", L"SMOOTH", 0, 654, 200, 60, 18);
+    control(window_, L"STATIC", L"AIM SPEED", 0, 654, 200, 60, 18);
     aimSmooth_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 714, 196, 160, 26, kAimSmooth);
-    SendMessageW(aimSmooth_, TBM_SETRANGE, FALSE, MAKELPARAM(5, 100)); // Percent of the error per update.
+    SendMessageW(aimSmooth_, TBM_SETRANGE, FALSE, MAKELPARAM(5, 100)); // Percent of the fastest stable aim correction.
     aimSmoothValue_ = control(window_, L"STATIC", L"", 0, 878, 200, 56, 18);
 
     group(window_, L"CROSSHAIR", 640, 240, 304, 92);
@@ -457,7 +457,7 @@ void CheatsOverlay::useSettingsFile(const std::filesystem::path& path) {
     setDeveloperAirStrafe(flag("air_strafe"));
     setDeveloperAimKey(unsigned(number("aim_key", 0)));
     setDeveloperAimMode(int(number("aim_mode", 0)));
-    setDeveloperAimSmoothing(float(number("aim_smooth", 0.2)));
+    setDeveloperAimSmoothing(float(number("aim_speed", 0.36)));
     style.crosshair = unsigned(number("crosshair", 0)) % 4;
     style.crosshairColor = unsigned(number("crosshair_color", style.crosshairColor)) % 8;
     style.crosshairSize = std::clamp(int(number("crosshair_size", style.crosshairSize)), 2, 40);
@@ -496,7 +496,7 @@ void CheatsOverlay::saveSettings() const {
            << "\nhealth=" << style.health << "\ndistance=" << style.distance
            << "\nnames=" << style.names << "\nspeed_graph=" << style.speedGraph
            << "\nrange=" << style.maxDistance << "\naim_mode=" << developerAimMode()
-           << "\naim_smooth=" << developerAimSmoothing() << "\ncrosshair=" << style.crosshair
+           << "\naim_speed=" << developerAimSmoothing() << "\ncrosshair=" << style.crosshair
            << "\ncrosshair_color=" << style.crosshairColor << "\ncrosshair_size=" << style.crosshairSize
            << "\nenemies_only=" << style.enemiesOnly << "\nmenu_theme=" << style.menuTheme << "\nmenu_opacity=" << unsigned(style.menuOpacity) << "\n";
 }
@@ -513,7 +513,7 @@ void CheatsOverlay::restoreDefaults() {
     setDeveloperAirStrafe(false);
     setDeveloperAimKey(0);
     setDeveloperAimMode(0);
-    setDeveloperAimSmoothing(0.2f);
+    setDeveloperAimSmoothing(0.36f);
     setDeveloperEnemiesOnly(false);
     requestDeveloperAimbot(false);
     requestDeveloperEspBox(false);

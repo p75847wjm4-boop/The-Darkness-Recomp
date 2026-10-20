@@ -384,7 +384,9 @@ bool developerAimCorrection(PPCContext& ctx, uint8_t* base, uint32_t client,
     const double pitchError = std::atan2(dz, std::hypot(dx, dy)) - std::asin(std::clamp(f[2], -1.0f, 1.0f));
     // The client applies a look packet on its next update, so correct only part
     // of the error per call and stop inside a small dead zone.
-    const double gain = developerAimSmoothing();
+    // Look packets land one update late, so correcting more than about half
+    // the error per update overshoots and oscillates. 100% maps to 0.55.
+    const double gain = developerAimSmoothing() * 0.55;
     constexpr double limit = 1500, deadZone = 0.004;
     const auto step = [&](double error) {
         if (std::abs(error) < deadZone) return int64_t(0);

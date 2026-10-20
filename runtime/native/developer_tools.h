@@ -98,7 +98,7 @@ void requestDeveloperLoadPosition();
 // Seconds since the current bunny hop run started; 0 while not hopping.
 float developerBunnyHopSeconds() noexcept;
 // Aimbot target choice (0 = nearest the crosshair, 1 = nearest by distance)
-// and the share of the remaining aim error corrected per update (0.05..1).
+// and the aim speed as a fraction (0.05..1) of the fastest stable correction.
 void setDeveloperAimMode(int mode) noexcept;
 int developerAimMode() noexcept;
 void setDeveloperAimSmoothing(float gain) noexcept;

@@ -228,7 +228,7 @@ press F2 to resume mouse control. Options last for this session only.
   crosshair it will lock (5 to 90 degrees); **Show FOV circle** draws that area.
 - **Aim:** the key button next to **Aimbot** sets its hold key: click it, then press any key or mouse button (Backspace restores V / Mouse 4, Escape cancels).
 - **Teleport:** **Save position** / **Load position** (or **F9** / **F10** in game) store your spot and return to it.
-- **Aimbot tuning:** choose the target nearest the crosshair or nearest by distance, and how quickly the aim moves (**Smooth**).
+- **Aimbot tuning:** choose the target nearest the crosshair or nearest by distance, and how quickly the aim moves (**Aim speed**; 100% is the fastest that stays steady).
 - **Crosshair:** off, dot, cross or circle, with a color and size.
 - **ESP filter:** **Enemies only** hides civilians and story characters from the ESP and the aimbot (judged from their name keys).
 - **Menu:** cycle the F7 menu **Theme** and set its **Opacity**.
