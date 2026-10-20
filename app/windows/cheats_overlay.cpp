@@ -26,7 +26,7 @@ enum : int {
     kSpeed = 2001, kInvincible, kNoclip, kInfiniteAmmo, kUnlock, kMaxDarkness, kAimbot,
     kWeapons, kGive, kBox, kSkeleton, kMission, kLoad, kShortcut, kDefaults, kProbe,
     kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov, kHealth, kSpawnName, kSpawn, kDistance, kMaxDistance, kNames, kDarklingGod, kBunnyHop, kSpeedometer, kHopMax, kAirStrafe, kSpeedGraph, kAimKey, kRemoveSpawns, kSavePosition, kLoadPosition, kAimMode, kAimSmooth,
-    kCrosshair, kCrosshairColor, kCrosshairSize, kTheme, kMenuOpacity
+    kCrosshair, kCrosshairColor, kCrosshairSize, kTheme, kMenuOpacity, kEnemiesOnly
 };
 constexpr int kWidth = 960, kHeight = 704;
 constexpr COLORREF kDim = RGB(140, 140, 140);
@@ -292,6 +292,9 @@ void CheatsOverlay::createControls() {
     menuOpacity_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 714, 396, 160, 26, kMenuOpacity);
     SendMessageW(menuOpacity_, TBM_SETRANGE, FALSE, MAKELPARAM(40, 100));
     menuOpacityValue_ = control(window_, L"STATIC", L"", 0, 878, 400, 56, 18);
+
+    group(window_, L"ESP FILTER", 640, 440, 304, 64);
+    enemiesOnly_ = check(window_, L"ENEMIES ONLY (ESP AND AIMBOT)", 654, 466, 276, kEnemiesOnly);
     refreshStyle();
 }
 
@@ -445,6 +448,8 @@ void CheatsOverlay::useSettingsFile(const std::filesystem::path& path) {
     style.distance = number("distance", style.distance) != 0;
     style.names = number("names", style.names) != 0;
     style.speedGraph = number("speed_graph", style.speedGraph) != 0;
+    style.enemiesOnly = number("enemies_only", style.enemiesOnly) != 0;
+    setDeveloperEnemiesOnly(style.enemiesOnly);
     style.maxDistance = std::clamp(int(number("range", style.maxDistance)), 10, EspStyle::kAllDistances);
     style.aimFov = float(std::clamp(number("aim_fov", style.aimFov), 5.0, 90.0));
     setDeveloperAimFov(style.aimFov);
@@ -493,7 +498,7 @@ void CheatsOverlay::saveSettings() const {
            << "\nrange=" << style.maxDistance << "\naim_mode=" << developerAimMode()
            << "\naim_smooth=" << developerAimSmoothing() << "\ncrosshair=" << style.crosshair
            << "\ncrosshair_color=" << style.crosshairColor << "\ncrosshair_size=" << style.crosshairSize
-           << "\nmenu_theme=" << style.menuTheme << "\nmenu_opacity=" << unsigned(style.menuOpacity) << "\n";
+           << "\nenemies_only=" << style.enemiesOnly << "\nmenu_theme=" << style.menuTheme << "\nmenu_opacity=" << unsigned(style.menuOpacity) << "\n";
 }
 
 void CheatsOverlay::restoreDefaults() {
@@ -509,13 +514,15 @@ void CheatsOverlay::restoreDefaults() {
     setDeveloperAimKey(0);
     setDeveloperAimMode(0);
     setDeveloperAimSmoothing(0.2f);
+    setDeveloperEnemiesOnly(false);
     requestDeveloperAimbot(false);
     requestDeveloperEspBox(false);
     requestDeveloperEspSkeleton(false);
     requestDeveloperEspTracers(false);
     espStyle() = {};
     setDeveloperAimFov(espStyle().aimFov);
-    refreshStyle();
+    SetLayeredWindowAttributes(window_, 0, espStyle().menuOpacity, LWA_ALPHA);
+    applyTheme();
     if (setResolutionShortcut_) setResolutionShortcut_(false);
     refresh();
 }
@@ -541,6 +548,9 @@ void CheatsOverlay::command(int id, int notification) {
     case kAimMode: if (clicked) { setDeveloperAimMode(1 - developerAimMode()); refreshStyle(); } return;
     case kCrosshair: if (clicked) { espStyle().crosshair = (espStyle().crosshair + 1) % 4; refreshStyle(); } return;
     case kCrosshairColor: if (clicked) cycleColor(espStyle().crosshairColor, crosshairColor_, L"COLOR"); return;
+    case kEnemiesOnly:
+        if (clicked) { espStyle().enemiesOnly = checked(enemiesOnly_); setDeveloperEnemiesOnly(espStyle().enemiesOnly); }
+        return;
     case kTheme: if (clicked) { espStyle().menuTheme = (espStyle().menuTheme + 1) % unsigned(EspStyle::kThemes.size()); applyTheme(); } return;
     case kUnlock: if (clicked && developerSnapshot().hasActivePlayer) requestDeveloperUnlockDarkness(); break;
     case kMaxDarkness: if (clicked && developerSnapshot().hasActivePlayer) requestDeveloperMaxDarkness(); break;
@@ -606,6 +616,7 @@ void CheatsOverlay::refreshStyle() {
     SendMessageW(menuOpacity_, TBM_SETPOS, TRUE, LPARAM(style.menuOpacity * 100 / 255));
     SetWindowTextW(menuOpacityValue_, (std::to_wstring(style.menuOpacity * 100 / 255) + L"%").c_str());
     setCheck(speedGraph_, style.speedGraph);
+    setCheck(enemiesOnly_, style.enemiesOnly);
     if (!capturingKey_) {
         const auto key = developerAimKey();
         const std::wstring text = L"HOLD: " + (key ? DarkRecomp::Native::keyboardKeyName(key) : std::wstring(L"V / MOUSE 4"));
@@ -720,7 +731,7 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
         saveSettings();
         SetWindowLongPtrW(closed, GWLP_USERDATA, 0);
         window_ = speed_ = invincible_ = noclip_ = infiniteAmmo_ = darklingGod_ = bunnyHop_ = speedometer_ = hopMax_ = hopMaxValue_ = airStrafe_ = speedGraph_ = aimKey_ = aimMode_ = aimSmooth_ = aimSmoothValue_ = crosshair_ =
-                crosshairColor_ = crosshairSize_ = crosshairSizeValue_ = theme_ = menuOpacity_ = menuOpacityValue_ = unlock_ = maxDarkness_ = aimbot_ =
+                crosshairColor_ = crosshairSize_ = crosshairSizeValue_ = theme_ = menuOpacity_ = menuOpacityValue_ = enemiesOnly_ = unlock_ = maxDarkness_ = aimbot_ =
             weapons_ = give_ = box_ = skeleton_ = mission_ = load_ = shortcut_ = defaults_ = status_ =
             tracers_ = boxColor_ = boneColor_ = tracerColor_ = opacity_ = opacityValue_ = fov_ = fovValue_ =
             fovCircle_ = cameraFov_ = cameraFovValue_ = health_ = distance_ = names_ = maxDistance_ = maxDistanceValue_ = spawn_ = spawnButton_ = nullptr;

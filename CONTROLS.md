@@ -230,6 +230,7 @@ press F2 to resume mouse control. Options last for this session only.
 - **Teleport:** **Save position** / **Load position** (or **F9** / **F10** in game) store your spot and return to it.
 - **Aimbot tuning:** choose the target nearest the crosshair or nearest by distance, and how quickly the aim moves (**Smooth**).
 - **Crosshair:** off, dot, cross or circle, with a color and size.
+- **ESP filter:** **Enemies only** hides civilians and story characters from the ESP and the aimbot (judged from their name keys).
 - **Menu:** cycle the F7 menu **Theme** and set its **Opacity**.
 - **Spawn:** **Remove spawned** deletes every character you spawned. The speedometer also shows the current hop run's time and best speed.
 - Cheat settings are saved to `DarkRecomp.cheats.ini` each time the overlay closes and restored on the next start.

@@ -21,6 +21,7 @@ namespace {
 // Health is the int16 the original death test 8214EC3C reads through the
 // character's RPG object: actor+656 -> +32 -> +24 -> [0].
 constexpr uint32_t kNpcVtable = 0x820626C8;
+std::atomic<bool> enemiesOnly{false};
 constexpr uint32_t kMatrix = 16;
 constexpr float kEyeHeight = 52, kAimHeight = 46;
 constexpr float kAimRange = 4000;
@@ -60,6 +61,24 @@ bool committed(uint8_t* base, uint32_t address, uint32_t size) {
     regions.known[regions.next++ % regions.known.size()] = {begin, end};
     return true;
 }
+// Server CWObject +676 holds the display-name key as a string object (text at
+// +4), e.g. CHAR_NAME_AI_SUB_MALE_CIV_03 or CHAR_NAME_AI_NY1_CHARACTER_CTMOBSTER7.
+// Civilians and story characters carry recognizable words in it.
+bool friendlyCharacter(uint8_t* base, uint32_t object) {
+    const auto text = PPC_LOAD_U32(object + 676);
+    if (!text || (text & 3) || !committed(base, text, 132)) return false;
+    std::string key;
+    for (uint32_t i = 0; i < 127; ++i) {
+        const auto c = char(PPC_LOAD_U8(text + 4 + i));
+        if (!c || c < 32 || c > 126) break;
+        key += char(std::toupper(static_cast<unsigned char>(c)));
+    }
+    for (const char* word : {"_CIV", "HOBO", "HOMELESS", "HOOKER", "JENNY", "AUNT", "SARAH", "KID", "CHILD",
+                             "BARTENDER", "VENDOR", "WAITER", "SHOPKEEPER", "TRAMP", "PRIEST", "NEWS"})
+        if (key.find(word) != std::string::npos) return true;
+    return false;
+}
+
 // Server CWObject +580 holds the designer name as a string object whose text
 // starts at +4 ("MOBSTER7"). Drop the instance number and title-case it.
 std::string objectName(uint8_t* base, uint32_t object) {
@@ -246,6 +265,8 @@ void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
                     if (!matrix(base, clientObject(ctx, base, client, id), rows)) continue;
                     EspTarget target{rows[3][0], rows[3][1], rows[3][2], hp, id};
                     target.name = objectName(base, object);
+                    target.friendly = friendlyCharacter(base, object);
+                    if (target.friendly && enemiesOnly.load(std::memory_order_relaxed)) continue;
                     // With ESP on, show only characters the game animated this
                     // frame: their skeleton root sits exactly at the origin.
                     if (esp) {
@@ -291,6 +312,8 @@ void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
     std::lock_guard lock(snapshotMutex);
     current = std::move(next);
 }
+
+void setDeveloperEnemiesOnly(bool enabled) noexcept { enemiesOnly.store(enabled, std::memory_order_relaxed); }
 
 void setDeveloperAimFov(float degrees) noexcept {
     if (std::isfinite(degrees)) aimFov.store(std::clamp(degrees, 5.0f, 90.0f), std::memory_order_relaxed);

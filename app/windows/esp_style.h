@@ -17,6 +17,7 @@ struct EspStyle {
     bool distance = true;
     bool names = true;
     bool speedGraph = true;
+    bool enemiesOnly = false;
     // Crosshair: 0 off, 1 dot, 2 cross, 3 circle; size is the arm length in pixels.
     unsigned crosshair = 0, crosshairColor = 1;
     int crosshairSize = 8;

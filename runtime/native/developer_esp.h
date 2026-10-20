@@ -18,6 +18,7 @@ struct EspTarget {
     bool hasHead = false;
     float head[3]{};
     std::string name; // Designer name, e.g. "Mobster" for MOBSTER7; may be empty.
+    bool friendly = false; // Civilian or story character, judged from its name key.
 };
 // The player's view, approximated from the client (rendered) player matrix
 // (rows: forward with pitch, left, up, position) plus the last camera FOV.
@@ -37,6 +38,8 @@ void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
                          bool aimbot);
 // Aimbot cone, full angle in degrees (5..90).
 void setDeveloperAimFov(float degrees) noexcept;
+// Leave friendly characters out of the ESP and the aimbot.
+void setDeveloperEnemiesOnly(bool enabled) noexcept;
 EspSnapshot developerEspSnapshot();
 void clearDeveloperEsp() noexcept;
 // Guest camera FOV (degrees, 4:3 horizontal reference) after 8249A030.
