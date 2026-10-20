@@ -185,10 +185,10 @@ void CheatsOverlay::createControls() {
     darklingGod_ = check(window_, L"GOD DARKLINGS", 166, 120, 140, kDarklingGod);
     unlock_ = button(window_, L"UNLOCK ALL DARKNESS", 26, 154, 134, kUnlock);
     maxDarkness_ = button(window_, L"MAX DARKNESS LEVEL", 168, 154, 134, kMaxDarkness);
-    // Leftmost position is the original camera; 60-120 are horizontal degrees at 16:9.
+    // Leftmost position is the original camera; 60-150 are horizontal degrees at 16:9.
     control(window_, L"STATIC", L"CAMERA FOV", 0, 26, 194, 78, 18);
     cameraFov_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 104, 190, 150, 26, kCameraFov);
-    SendMessageW(cameraFov_, TBM_SETRANGE, FALSE, MAKELPARAM(59, 120));
+    SendMessageW(cameraFov_, TBM_SETRANGE, FALSE, MAKELPARAM(59, 150));
     cameraFovValue_ = control(window_, L"STATIC", L"", 0, 258, 194, 54, 18);
     speedometer_ = check(window_, L"SPEEDOMETER", 26, 224, 112, kSpeedometer);
     control(window_, L"STATIC", L"HOP MAX", 0, 142, 226, 56, 18);
@@ -642,7 +642,7 @@ void CheatsOverlay::slider(HWND control) {
     const auto position = int(SendMessageW(control, TBM_GETPOS, 0, 0));
     if (control == cameraFov_) {
         // Session change; Video Settings saves the camera FOV permanently.
-        setFieldOfViewSetting(position < 60 ? kOriginalFov : float((std::min)(position, 120)));
+        setFieldOfViewSetting(position < 60 ? kOriginalFov : float((std::min)(position, 150)));
         refreshStyle();
         return;
     }

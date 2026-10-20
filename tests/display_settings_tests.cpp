@@ -215,10 +215,10 @@ int main() {
               loadFieldOfView(path) == 93.125f, "invalid save leaves complete selection intact");
         float value = 77;
         check(parseFieldOfView(L"90.5", value) && value == 90.5f, "fractional FOV parsing");
-        for (const auto bad : {L"", L"nan", L"inf", L"59.9", L"120.1", L"90oops", L"90,5", L"-1", L"90.", L"120.00000000000001"})
+        for (const auto bad : {L"", L"nan", L"inf", L"59.9", L"150.1", L"90oops", L"90,5", L"-1", L"90.", L"150.00000000000001"})
             check(!parseFieldOfView(bad, value) && value == 90.5f, "invalid FOV must not mutate output");
         check(setFieldOfViewSetting(90.5f), "set FOV");
-        for (const float bad : {-1.f, 59.9f, 120.1f, std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()})
+        for (const float bad : {-1.f, 59.9f, 150.1f, std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()})
             check(!setFieldOfViewSetting(bad) && fieldOfViewSetting() == 90.5f, "invalid FOV must preserve setting");
         check(WritePrivateProfileStringW(L"Other", L"Preserve", L"yes", path.c_str()), "seed unrelated setting");
         check(saveDisplaySettings(path, 100.125f, custom) && loadFieldOfView(path) == 100.125f, "persist display settings");
@@ -250,7 +250,7 @@ int main() {
               loadFieldOfView(path) == 100.125f, "failed settings replacement partially changed preferences");
         GetPrivateProfileStringW(L"Other", L"Preserve", L"", unrelated, 8, path.c_str());
         check(std::wstring_view(unrelated) == L"yes", "language save replaced an unrelated section");
-        check(!saveFieldOfView(path, 121) && loadFieldOfView(path) == 100.125f, "invalid write preserves file");
+        check(!saveFieldOfView(path, 151) && loadFieldOfView(path) == 100.125f, "invalid write preserves file");
         check(WritePrivateProfileStringW(L"Display", L"FieldOfView", L"not-a-number", path.c_str()), "seed corrupt config");
         check(loadFieldOfView(path) == 0, "corrupt config uses Original");
         check(saveFieldOfView(path, 0) && loadFieldOfView(path) == 0, "persist Original");

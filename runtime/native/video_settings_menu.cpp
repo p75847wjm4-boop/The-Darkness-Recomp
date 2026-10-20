@@ -90,8 +90,8 @@ bool changeVideoSetting(std::string_view action, int direction) noexcept {
         settings.frameRateLimit = step(settings.frameRateLimit, direction, std::array{0u, 30u, 60u, 90u, 120u, 144u, 165u, 240u, 360u});
     else if (action == "darkrecomp.fov") {
         const auto value = fieldOfViewSetting();
-        const float next = direction > 0 ? (value == 0 ? 60.f : value >= 120 ? 0.f : std::floor(value) + 1.f)
-                                        : (value == 0 ? 120.f : value <= 60 ? 0.f : std::ceil(value) - 1.f);
+        const float next = direction > 0 ? (value == 0 ? 60.f : value >= 150 ? 0.f : std::floor(value) + 1.f)
+                                        : (value == 0 ? 150.f : value <= 60 ? 0.f : std::ceil(value) - 1.f);
         setFieldOfViewSetting(next);
     } else return false;
     setGraphicsSettings(settings);

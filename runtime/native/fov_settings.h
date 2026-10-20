@@ -4,13 +4,13 @@ namespace DarkRecomp::Native {
 
 inline constexpr float kOriginalFov = 0.0f;
 inline constexpr float kMinimumConfiguredFov = 60.0f;
-inline constexpr float kMaximumConfiguredFov = 120.0f;
+inline constexpr float kMaximumConfiguredFov = 150.0f;
 inline constexpr double kFovReferenceAspect = 16.0 / 9.0;
 
 // Horizontal degrees at 16:9, independently of the current render dimensions.
 // Zero preserves the guest camera. Safe to read/write while guest threads run.
 float fieldOfViewSetting() noexcept;
-// Accepts zero or finite values in [60, 120]. Invalid input leaves the setting
+// Accepts zero or finite values in [60, 150]. Invalid input leaves the setting
 // unchanged; the UI/config loader can report failure rather than silently clamp.
 bool setFieldOfViewSetting(float degrees) noexcept;
 bool isValidConfiguredHorizontalFovDegrees(float degrees) noexcept;
@@ -31,7 +31,7 @@ double horizontal16By9ToGuestFov(double horizontalDegrees,
 
 // Scale each original frame's tan(FOV/2) relative to an explicitly verified,
 // unzoomed gameplay baseline expressed as horizontal degrees at 16:9.
-// The current guest angle may be a zoom/cutscene value outside [60, 120].
+// The current guest angle may be a zoom/cutscene value outside [60, 150].
 // This preserves its tangent ratio to the baseline; it does not overwrite it
 // with a fixed angle. Never derive the baseline from the first sampled frame,
 // and never feed a previously adjusted result back as originalGuestDegrees.
