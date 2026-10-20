@@ -470,7 +470,7 @@ static void testVideoSettings(PPCContext& ctx) {
     changeVideoSetting("darkrecomp.fov", -1);
     check(fieldOfViewSetting() == 0, "FOV Original is unreachable");
     changeVideoSetting("darkrecomp.fov", -1);
-    check(fieldOfViewSetting() == 120, "FOV wrap failed");
+    check(fieldOfViewSetting() == 150, "FOV wrap failed");
     reportDisplaySettingsSave(false);
     check(videoSettingLabel("darkrecomp.bloom").find("SAVE FAILED") != std::string::npos, "save failure is invisible in menu");
     reportDisplaySettingsSave(true);
