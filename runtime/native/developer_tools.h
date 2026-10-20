@@ -92,6 +92,8 @@ bool requestDeveloperSpawn(std::string_view templateName);
 // Darkling templates every campaign level loads for the summon power.
 std::span<const std::string_view> developerSpawnSuggestions() noexcept;
 void requestDeveloperProbe();
+// Runs a script line through the game's original console, e.g. "showFPSToggle()".
+void requestDeveloperCommand(std::string command);
 void requestDeveloperRemoveSpawns();
 void requestDeveloperSavePosition();
 void requestDeveloperLoadPosition();

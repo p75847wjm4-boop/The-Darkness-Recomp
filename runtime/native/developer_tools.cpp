@@ -24,7 +24,7 @@ namespace {
 std::mutex stateMutex;
 DeveloperSnapshot state;
 std::optional<std::string> pendingMission;
-std::optional<std::string> pendingWeapon, pendingSpawn;
+std::optional<std::string> pendingWeapon, pendingSpawn, pendingCommand;
 bool pendingProbe = false, pendingRemoveSpawns = false, pendingSavePosition = false, pendingLoadPosition = false;
 bool playerToolsEnabled = false;
 bool pendingDarknessUnlock = false;
@@ -69,7 +69,7 @@ void measurePlayerSpeed(uint8_t* base, uint32_t actor) {
 }
 
 void refreshWorkLocked() {
-    needsUpdate.store(panelVisible || pendingMission.has_value() || pendingWeapon.has_value() || pendingSpawn.has_value() || pendingProbe || pendingRemoveSpawns || pendingSavePosition || pendingLoadPosition || playerToolsEnabled ||
+    needsUpdate.store(panelVisible || pendingMission.has_value() || pendingCommand.has_value() || pendingWeapon.has_value() || pendingSpawn.has_value() || pendingProbe || pendingRemoveSpawns || pendingSavePosition || pendingLoadPosition || playerToolsEnabled ||
         pendingDarknessUnlock || pendingDarknessLevel, std::memory_order_release);
 }
 
@@ -379,6 +379,12 @@ void requestDeveloperProbe() {
     requested("Probe dump queued.");
 }
 
+void requestDeveloperCommand(std::string command) {
+    std::lock_guard lock(stateMutex);
+    pendingCommand = std::move(command);
+    requested("Command queued.");
+}
+
 void requestDeveloperRemoveSpawns() {
     std::lock_guard lock(stateMutex);
     pendingRemoveSpawns = true;
@@ -415,6 +421,7 @@ void resetDeveloperTools() {
     pendingMission.reset();
     pendingWeapon.reset();
     pendingSpawn.reset();
+    pendingCommand.reset();
     playerToolsEnabled = false;
     pendingDarknessUnlock = pendingDarknessLevel = pendingProbe = false;
     pendingRemoveSpawns = pendingSavePosition = pendingLoadPosition = false;
@@ -425,9 +432,9 @@ void resetDeveloperTools() {
 }
 
 bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool missionReady) {
-    std::optional<std::string> mission, weapon, spawn;
+    std::optional<std::string> mission, weapon, spawn, command;
     float speed;
-    bool invincible, noclip, infiniteAmmo, darklingGod, bunnyHop, speedometer, espBox, espSkeleton, espTracers, aimbot, enabled, unlockDarkness, maxDarkness, probe, overlay, removeSpawns, savePosition, loadPosition;
+    bool invincible, noclip, infiniteAmmo, darklingGod, bunnyHop, speedometer, espBox, espSkeleton, espTracers, aimbot, enabled, unlockDarkness, maxDarkness, probe, overlay, removeSpawns, savePosition, loadPosition, hadPlayer;
     uint64_t request;
     {
         std::lock_guard lock(stateMutex);
@@ -437,6 +444,8 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         pendingWeapon.reset();
         spawn = std::move(pendingSpawn);
         pendingSpawn.reset();
+        command = std::move(pendingCommand);
+        pendingCommand.reset();
         speed = state.playerSpeed;
         invincible = state.invincible;
         noclip = state.noclip;
@@ -456,6 +465,7 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         savePosition = std::exchange(pendingSavePosition, false);
         loadPosition = std::exchange(pendingLoadPosition, false);
         overlay = panelVisible;
+        hadPlayer = state.hasActivePlayer;
         request = requestRevision;
     }
     const bool canLoad = missionReady && canLoadDeveloperMission(base, client);
@@ -477,6 +487,12 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         publish(request, loaded ? false : canLoad, false, status);
         // Even a failed engine command may have changed transition state.
         return canLoad;
+    }
+    if (command) {
+        std::string status;
+        if (executeDeveloperScript(call, base, *command, status)) status = "Ran: " + *command;
+        publish(request, canLoad, hadPlayer, status);
+        return false;
     }
     const auto player = updateDeveloperPlayer(call, base, client, speed, invincible, enabled, noclip, infiniteAmmo,
                                               darklingGod, bunnyHop);

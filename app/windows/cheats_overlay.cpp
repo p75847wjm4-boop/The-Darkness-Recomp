@@ -26,7 +26,7 @@ enum : int {
     kSpeed = 2001, kInvincible, kNoclip, kInfiniteAmmo, kUnlock, kMaxDarkness, kAimbot,
     kWeapons, kGive, kBox, kSkeleton, kMission, kLoad, kShortcut, kDefaults, kProbe,
     kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov, kHealth, kSpawnName, kSpawn, kDistance, kMaxDistance, kNames, kDarklingGod, kBunnyHop, kSpeedometer, kHopMax, kAirStrafe, kSpeedGraph, kAimKey, kRemoveSpawns, kSavePosition, kLoadPosition, kAimMode, kAimSmooth,
-    kCrosshair, kCrosshairColor, kCrosshairSize, kTheme, kMenuOpacity, kEnemiesOnly
+    kCrosshair, kCrosshairColor, kCrosshairSize, kTheme, kMenuOpacity, kEnemiesOnly, kConsole, kRunCommand
 };
 constexpr int kWidth = 960, kHeight = 704;
 constexpr COLORREF kDim = RGB(140, 140, 140);
@@ -86,7 +86,8 @@ CheatsOverlay::~CheatsOverlay() {
 bool CheatsOverlay::dropDownOpen() const {
     return (speed_ && SendMessageW(speed_, CB_GETDROPPEDSTATE, 0, 0)) ||
            (mission_ && SendMessageW(mission_, CB_GETDROPPEDSTATE, 0, 0)) ||
-           (spawn_ && SendMessageW(spawn_, CB_GETDROPPEDSTATE, 0, 0));
+           (spawn_ && SendMessageW(spawn_, CB_GETDROPPEDSTATE, 0, 0)) ||
+           (console_ && SendMessageW(console_, CB_GETDROPPEDSTATE, 0, 0));
 }
 
 bool CheatsOverlay::handleMessage(MSG& message) {
@@ -100,6 +101,11 @@ bool CheatsOverlay::handleMessage(MSG& message) {
         // Let an open drop-down cancel its pending choice first.
         if (dropDownOpen()) return false;
         close();
+        return true;
+    }
+    if (inside && message.message == WM_KEYDOWN && message.wParam == VK_RETURN && console_ &&
+        (message.hwnd == console_ || IsChild(console_, message.hwnd))) {
+        runCommand();
         return true;
     }
     return inside && IsDialogMessageW(window_, &message);
@@ -295,6 +301,20 @@ void CheatsOverlay::createControls() {
 
     group(window_, L"ESP FILTER", 640, 440, 304, 64);
     enemiesOnly_ = check(window_, L"ENEMIES ONLY (ESP AND AIMBOT)", 654, 466, 276, kEnemiesOnly);
+
+    // Any original engine command; typing a bare name appends "()".
+    group(window_, L"CONSOLE", 640, 512, 304, 140);
+    console_ = control(window_, L"COMBOBOX", L"", CBS_DROPDOWN | CBS_AUTOHSCROLL | CBS_NOINTEGRALHEIGHT |
+                       WS_VSCROLL | WS_TABSTOP, 654, 534, 276, 300, kConsole);
+    for (const auto* preset : {L"showFPSToggle()", L"showFPSLiteToggle()", L"showStatsToggle()", L"showDebugVarToggle()",
+                               L"showAnimToggle()", L"showSoundToggle()", L"toggleShowMemInfo()", L"toggleShowNetworkStats()",
+                               L"unlockall()", L"sv_forceberserker()", L"in_debugkeys(1)", L"cg_showdevtext(1)",
+                               L"xr_freeze(1)", L"xr_freeze(0)", L"xr_showbounding(1)", L"xr_showbounding(0)",
+                               L"setdifficulty(0)", L"setdifficulty(3)", L"commands()"})
+        SendMessageW(console_, CB_ADDSTRING, 0, LPARAM(preset));
+    button(window_, L"RUN", 654, 568, 90, kRunCommand);
+    control(window_, L"STATIC", L"ENTER RUNS. FULL LIST: CONTROLS.MD.", 0, 752, 572, 180, 18);
+    control(window_, L"STATIC", L"SOME COMMANDS CAN CRASH OR BREAK SAVES.", 0, 654, 604, 276, 36);
     refreshStyle();
 }
 
@@ -372,6 +392,24 @@ void CheatsOverlay::giveWeapon() {
     const auto selected = SendMessageW(weapons_, LB_GETCURSEL, 0, 0);
     const auto weapons = developerWeapons();
     if (selected >= 0 && size_t(selected) < weapons.size()) requestDeveloperWeapon(weapons[size_t(selected)].id);
+    refresh();
+}
+
+void CheatsOverlay::runCommand() {
+    wchar_t text[400]{};
+    GetWindowTextW(console_, text, int(std::size(text)));
+    std::string line;
+    for (const wchar_t* c = text; *c; ++c) if (*c >= 32 && *c < 127) line.push_back(char(*c));
+    while (!line.empty() && line.back() == ' ') line.pop_back();
+    if (line.empty()) return;
+    if (line.find('(') == std::string::npos) line += "()";
+    requestDeveloperCommand(line);
+    // Keep the newest command at the top of the drop-down history.
+    const std::wstring wide(line.begin(), line.end());
+    const auto existing = SendMessageW(console_, CB_FINDSTRINGEXACT, WPARAM(-1), LPARAM(wide.c_str()));
+    if (existing != CB_ERR) SendMessageW(console_, CB_DELETESTRING, WPARAM(existing), 0);
+    SendMessageW(console_, CB_INSERTSTRING, 0, LPARAM(wide.c_str()));
+    SetWindowTextW(console_, wide.c_str());
     refresh();
 }
 
@@ -566,6 +604,7 @@ void CheatsOverlay::command(int id, int notification) {
     case kDistance: if (clicked) espStyle().distance = checked(distance_); return;
     case kNames: if (clicked) espStyle().names = checked(names_); return;
     case kSpawn: if (clicked) spawn(); return;
+    case kRunCommand: if (clicked) runCommand(); return;
     case kWeapons: if (notification == LBN_DBLCLK) giveWeapon(); return;
     case kGive: if (clicked) giveWeapon(); return;
     case kLoad: if (clicked) loadMission(); return;
@@ -734,7 +773,7 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
                 crosshairColor_ = crosshairSize_ = crosshairSizeValue_ = theme_ = menuOpacity_ = menuOpacityValue_ = enemiesOnly_ = unlock_ = maxDarkness_ = aimbot_ =
             weapons_ = give_ = box_ = skeleton_ = mission_ = load_ = shortcut_ = defaults_ = status_ =
             tracers_ = boxColor_ = boneColor_ = tracerColor_ = opacity_ = opacityValue_ = fov_ = fovValue_ =
-            fovCircle_ = cameraFov_ = cameraFovValue_ = health_ = distance_ = names_ = maxDistance_ = maxDistanceValue_ = spawn_ = spawnButton_ = nullptr;
+            fovCircle_ = cameraFov_ = cameraFovValue_ = health_ = distance_ = names_ = maxDistance_ = maxDistanceValue_ = spawn_ = spawnButton_ = console_ = nullptr;
         displayedStatus_.clear();
         releaseInputGate();
         if (restoreFocus && IsWindow(owner_)) SetFocus(owner_);
