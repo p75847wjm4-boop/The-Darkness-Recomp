@@ -38,7 +38,7 @@ std::atomic<long long> mouseTurn{0};
 std::atomic<bool> airStrafe{false};
 std::atomic<unsigned> aimKey{0};
 std::atomic<int> aimMode{0};
-std::atomic<float> aimSmoothing{0.36f};
+std::atomic<float> aimSmoothing{0.66f};
 std::atomic<uint64_t> hopStarted{0};
 std::atomic<float> bunnyHopMax{2.5f};
 std::atomic<float> playerSpeed{-1};

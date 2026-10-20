@@ -457,7 +457,7 @@ void CheatsOverlay::useSettingsFile(const std::filesystem::path& path) {
     setDeveloperAirStrafe(flag("air_strafe"));
     setDeveloperAimKey(unsigned(number("aim_key", 0)));
     setDeveloperAimMode(int(number("aim_mode", 0)));
-    setDeveloperAimSmoothing(float(number("aim_speed", 0.36)));
+    setDeveloperAimSmoothing(float(number("aim_speed2", 0.66)));
     style.crosshair = unsigned(number("crosshair", 0)) % 4;
     style.crosshairColor = unsigned(number("crosshair_color", style.crosshairColor)) % 8;
     style.crosshairSize = std::clamp(int(number("crosshair_size", style.crosshairSize)), 2, 40);
@@ -496,7 +496,7 @@ void CheatsOverlay::saveSettings() const {
            << "\nhealth=" << style.health << "\ndistance=" << style.distance
            << "\nnames=" << style.names << "\nspeed_graph=" << style.speedGraph
            << "\nrange=" << style.maxDistance << "\naim_mode=" << developerAimMode()
-           << "\naim_speed=" << developerAimSmoothing() << "\ncrosshair=" << style.crosshair
+           << "\naim_speed2=" << developerAimSmoothing() << "\ncrosshair=" << style.crosshair
            << "\ncrosshair_color=" << style.crosshairColor << "\ncrosshair_size=" << style.crosshairSize
            << "\nenemies_only=" << style.enemiesOnly << "\nmenu_theme=" << style.menuTheme << "\nmenu_opacity=" << unsigned(style.menuOpacity) << "\n";
 }
@@ -513,7 +513,7 @@ void CheatsOverlay::restoreDefaults() {
     setDeveloperAirStrafe(false);
     setDeveloperAimKey(0);
     setDeveloperAimMode(0);
-    setDeveloperAimSmoothing(0.36f);
+    setDeveloperAimSmoothing(0.66f);
     setDeveloperEnemiesOnly(false);
     requestDeveloperAimbot(false);
     requestDeveloperEspBox(false);
