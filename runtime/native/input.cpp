@@ -952,6 +952,10 @@ XINPUT_GAMEPAD NativeInput::keyboardLocked() {
     };
     pad.sThumbLX = axis(KeyboardAction::MoveLeft, KeyboardAction::MoveRight);
     pad.sThumbLY = axis(KeyboardAction::MoveBackward, KeyboardAction::MoveForward);
+    // Air strafing: the game has no momentum, so while hopping keep moving
+    // forward without W and steer with A/D plus the mouse. S still overrides.
+    if (!menuContext && down(KeyboardAction::Jump) && developerBunnyHopEnabled() && developerAirStrafe() &&
+        !down(KeyboardAction::MoveBackward)) pad.sThumbLY = 32767;
     pad.sThumbRX = axis(KeyboardAction::LookLeft, KeyboardAction::LookRight);
     pad.sThumbRY = axis(KeyboardAction::LookDown, KeyboardAction::LookUp);
     pad.bLeftTrigger = down(KeyboardAction::FireLeft) ? 255 : 0;
