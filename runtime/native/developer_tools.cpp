@@ -33,7 +33,10 @@ uint64_t requestRevision = 0;
 bool panelVisible = false;
 std::atomic<bool> needsUpdate{false};
 std::atomic<bool> bunnyHopOn{false};
-std::atomic<uint64_t> jumpHeldSince{0};
+std::atomic<float> hopBoost{1};
+std::atomic<long long> mouseTurn{0};
+std::atomic<bool> airStrafe{false};
+std::atomic<unsigned> aimKey{0};
 std::atomic<float> bunnyHopMax{2.5f};
 std::atomic<float> playerSpeed{-1};
 
@@ -268,18 +271,33 @@ void requestDeveloperBunnyHop(bool enabled) {
     requested("Bunny hop queued.");
 }
 bool developerBunnyHopEnabled() noexcept { return bunnyHopOn.load(std::memory_order_acquire); }
-void noteDeveloperJumpHeld(bool held) noexcept {
-    // Milliseconds since the jump key went down while hopping; 0 = released.
-    if (!held) { jumpHeldSince.store(0, std::memory_order_release); return; }
-    uint64_t expected = 0;
-    jumpHeldSince.compare_exchange_strong(expected, GetTickCount64(), std::memory_order_acq_rel);
+void noteDeveloperMouseTurn(long long dx) noexcept {
+    if (bunnyHopOn.load(std::memory_order_relaxed)) mouseTurn.fetch_add(dx, std::memory_order_relaxed);
+}
+void updateDeveloperBunnyHop(bool hopping, int strafe) noexcept {
+    static LARGE_INTEGER frequency{}, last{};
+    if (!frequency.QuadPart) QueryPerformanceFrequency(&frequency);
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    const float seconds = last.QuadPart ? (std::min)(0.1f, float(now.QuadPart - last.QuadPart) / float(frequency.QuadPart)) : 0;
+    last = now;
+    const auto turn = mouseTurn.exchange(0, std::memory_order_relaxed);
+    float boost = hopBoost.load(std::memory_order_relaxed);
+    if (!hopping) boost = 1;
+    else if (!airStrafe.load(std::memory_order_relaxed)) boost += 0.3f * seconds;
+    else if (strafe && turn && (turn > 0) == (strafe > 0)) boost += 0.8f * seconds;
+    else boost -= 0.15f * seconds;
+    hopBoost.store(std::clamp(boost, 1.f, bunnyHopMax.load(std::memory_order_relaxed)), std::memory_order_relaxed);
 }
 float developerBunnyHopBoost() noexcept {
-    const auto since = jumpHeldSince.load(std::memory_order_acquire);
-    if (!bunnyHopOn.load(std::memory_order_acquire) || !since) return 1;
-    const float seconds = float(GetTickCount64() - since) / 1000;
-    return (std::min)(bunnyHopMax.load(std::memory_order_relaxed), 1 + 0.3f * seconds);
+    return bunnyHopOn.load(std::memory_order_acquire) ? hopBoost.load(std::memory_order_relaxed) : 1;
 }
+void setDeveloperAirStrafe(bool enabled) noexcept { airStrafe.store(enabled, std::memory_order_relaxed); }
+bool developerAirStrafe() noexcept { return airStrafe.load(std::memory_order_relaxed); }
+void setDeveloperAimKey(unsigned virtualKey) noexcept {
+    aimKey.store(virtualKey < 256 ? virtualKey : 0, std::memory_order_relaxed);
+}
+unsigned developerAimKey() noexcept { return aimKey.load(std::memory_order_relaxed); }
 void setDeveloperBunnyHopMax(float multiplier) noexcept {
     if (std::isfinite(multiplier)) bunnyHopMax.store(std::clamp(multiplier, 1.5f, 10.f), std::memory_order_relaxed);
 }

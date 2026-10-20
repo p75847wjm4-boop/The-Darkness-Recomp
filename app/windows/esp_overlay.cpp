@@ -2,6 +2,7 @@
 #include "esp_style.h"
 #include "runtime/native/developer_esp.h"
 #include "runtime/native/developer_tools.h"
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -137,6 +138,31 @@ void EspOverlay::paint(HDC dc, int width, int height) {
         SelectObject(dc, speedFont_);
         wchar_t text[48];
         const int length = swprintf_s(text, L"%.1f m/s  (%.0f km/h)", speed, speed * 3.6f);
+        if (const auto now = GetTickCount64(); now - lastSpeedSample_ >= 33) {
+            lastSpeedSample_ = now;
+            speeds_[speedNext_] = speed;
+            speedNext_ = (speedNext_ + 1) % speeds_.size();
+        }
+        if (style.speedGraph) {
+            float top = 5;
+            for (const float sample : speeds_) top = (std::max)(top, sample);
+            const int graphWidth = 270, graphHeight = 56;
+            const int left = (width - graphWidth) / 2, bottom = height - 116;
+            const HPEN outline = CreatePen(PS_SOLID, 1, RGB(110, 110, 110));
+            const HPEN line = CreatePen(PS_SOLID, 2, RGB(80, 230, 120));
+            const auto previous = SelectObject(dc, outline);
+            Rectangle(dc, left - 2, bottom - graphHeight - 2, left + graphWidth + 2, bottom + 2);
+            SelectObject(dc, line);
+            for (size_t i = 0; i < speeds_.size(); ++i) {
+                const float sample = speeds_[(speedNext_ + i) % speeds_.size()];
+                const int x = left + int(i * (graphWidth - 1) / (speeds_.size() - 1));
+                const int y = bottom - int(sample / top * graphHeight);
+                if (i) LineTo(dc, x, y); else MoveToEx(dc, x, y, nullptr);
+            }
+            SelectObject(dc, previous);
+            DeleteObject(outline);
+            DeleteObject(line);
+        }
         RECT line{0, height - 110, width, height - 76};
         SetTextColor(dc, RGB(255, 255, 255));
         if (length > 0) DrawTextW(dc, text, length, &line, DT_CENTER | DT_SINGLELINE | DT_NOCLIP);

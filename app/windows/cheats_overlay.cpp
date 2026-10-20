@@ -6,10 +6,13 @@
 #include <commctrl.h>
 #include "runtime/native/developer_tools.h"
 #include "runtime/native/input.h"
+#include "runtime/native/keyboard_bindings.h"
 #include <algorithm>
 #include <array>
 #include <cstdio>
 #include <exception>
+#include <map>
+#include <fstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -18,11 +21,11 @@ using namespace DarkRecomp::Native;
 
 namespace {
 constexpr wchar_t kWindowClass[] = L"DarkRecompCheatsOverlay";
-constexpr UINT_PTR kRefreshTimer = 1;
+constexpr UINT_PTR kRefreshTimer = 1, kKeyTimer = 2;
 enum : int {
     kSpeed = 2001, kInvincible, kNoclip, kInfiniteAmmo, kUnlock, kMaxDarkness, kAimbot,
     kWeapons, kGive, kBox, kSkeleton, kMission, kLoad, kShortcut, kDefaults, kProbe,
-    kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov, kHealth, kSpawnName, kSpawn, kDistance, kMaxDistance, kNames, kDarklingGod, kBunnyHop, kSpeedometer, kHopMax
+    kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov, kHealth, kSpawnName, kSpawn, kDistance, kMaxDistance, kNames, kDarklingGod, kBunnyHop, kSpeedometer, kHopMax, kAirStrafe, kSpeedGraph, kAimKey
 };
 constexpr int kWidth = 640, kHeight = 704;
 constexpr BYTE kOpacity = 235;
@@ -170,7 +173,7 @@ void CheatsOverlay::createControls() {
     control(window_, L"STATIC", L"CHEATS", 0, 16, 8, 300, 26, 0, titleFont_);
 
     // Left column: player, aim, weapons.
-    group(window_, L"PLAYER", 12, 40, 304, 216);
+    group(window_, L"PLAYER", 12, 40, 304, 242);
     control(window_, L"STATIC", L"SPEED", 0, 26, 64, 60, 18);
     speed_ = control(window_, L"COMBOBOX", L"", comboStyle, 90, 60, 130, 240, kSpeed);
     for (const auto* name : kSpeedNames) SendMessageW(speed_, CB_ADDSTRING, 0, LPARAM(name));
@@ -191,18 +194,21 @@ void CheatsOverlay::createControls() {
     hopMax_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 196, 222, 70, 26, kHopMax);
     SendMessageW(hopMax_, TBM_SETRANGE, FALSE, MAKELPARAM(15, 100)); // Tenths: 1.5x..10x.
     hopMaxValue_ = control(window_, L"STATIC", L"", 0, 268, 226, 44, 18);
+    airStrafe_ = check(window_, L"AIR STRAFE", 26, 250, 130, kAirStrafe);
+    speedGraph_ = check(window_, L"SPEED GRAPH", 166, 250, 130, kSpeedGraph);
 
-    group(window_, L"AIM", 12, 264, 304, 108);
-    aimbot_ = check(window_, L"AIMBOT (HOLD V OR MOUSE 4)", 26, 286, 280, kAimbot);
-    control(window_, L"STATIC", L"AIM FOV", 0, 26, 316, 60, 18);
-    fov_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 84, 312, 170, 26, kFov);
+    group(window_, L"AIM", 12, 290, 304, 108);
+    aimbot_ = check(window_, L"AIMBOT", 26, 312, 90, kAimbot);
+    aimKey_ = button(window_, L"", 122, 310, 180, kAimKey);
+    control(window_, L"STATIC", L"AIM FOV", 0, 26, 342, 60, 18);
+    fov_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 84, 338, 170, 26, kFov);
     SendMessageW(fov_, TBM_SETRANGE, FALSE, MAKELPARAM(5, 90));
-    fovValue_ = control(window_, L"STATIC", L"", 0, 258, 316, 50, 18);
-    fovCircle_ = check(window_, L"SHOW FOV CIRCLE", 26, 342, 270, kFovCircle);
+    fovValue_ = control(window_, L"STATIC", L"", 0, 258, 342, 50, 18);
+    fovCircle_ = check(window_, L"SHOW FOV CIRCLE", 26, 368, 270, kFovCircle);
 
-    group(window_, L"WEAPONS", 12, 380, 304, 208);
+    group(window_, L"WEAPONS", 12, 406, 304, 182);
     weapons_ = control(window_, L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP | WS_BORDER,
-                       26, 400, 276, 146, kWeapons);
+                       26, 426, 276, 120, kWeapons);
     for (const auto& weapon : developerWeapons()) {
         std::wstring title(weapon.title.begin(), weapon.title.end());
         CharUpperBuffW(title.data(), DWORD(title.size()));
@@ -350,6 +356,97 @@ void CheatsOverlay::spawn() {
     refresh();
 }
 
+// Aimbot key: the next key or mouse button pressed (not left click, which
+// started the capture). Escape cancels; Backspace restores V / Mouse 4.
+void CheatsOverlay::beginKeyCapture() {
+    for (int key = 1; key < 256; ++key) keysAtCapture_[key] = (GetAsyncKeyState(key) & 0x8000) != 0;
+    capturingKey_ = true;
+    SetWindowTextW(aimKey_, L"PRESS A KEY...");
+    SetTimer(window_, kKeyTimer, 15, nullptr);
+}
+
+void CheatsOverlay::pollKeyCapture() {
+    if (!capturingKey_) { KillTimer(window_, kKeyTimer); return; }
+    for (int key = 2; key < 256; ++key) {
+        const bool down = (GetAsyncKeyState(key) & 0x8000) != 0;
+        if (!down) { keysAtCapture_[key] = false; continue; }
+        if (keysAtCapture_[key] || key == VK_SHIFT || key == VK_CONTROL || key == VK_MENU) continue;
+        capturingKey_ = false;
+        KillTimer(window_, kKeyTimer);
+        if (key == VK_BACK) setDeveloperAimKey(0);
+        else if (key != VK_ESCAPE) setDeveloperAimKey(unsigned(key));
+        refreshStyle();
+        return;
+    }
+}
+
+// DarkRecomp.cheats.ini: one key=value per line, read back on the next start.
+void CheatsOverlay::useSettingsFile(const std::filesystem::path& path) {
+    settingsPath_ = path;
+    std::ifstream input(path);
+    if (!input) return;
+    std::map<std::string, std::string> values;
+    for (std::string line; std::getline(input, line);) {
+        const auto equals = line.find('=');
+        if (equals != std::string::npos) values[line.substr(0, equals)] = line.substr(equals + 1);
+    }
+    const auto number = [&](const char* key, double fallback) {
+        const auto found = values.find(key);
+        if (found == values.end()) return fallback;
+        try { return std::stod(found->second); } catch (...) { return fallback; }
+    };
+    const auto flag = [&](const char* key) { return number(key, 0) != 0; };
+    auto& style = espStyle();
+    style.box = unsigned(number("box_color", style.box)) % 8;
+    style.bone = unsigned(number("bone_color", style.bone)) % 8;
+    style.tracer = unsigned(number("tracer_color", style.tracer)) % 8;
+    style.opacity = BYTE(std::clamp(number("opacity", style.opacity), 51.0, 255.0));
+    style.fovCircle = number("fov_circle", style.fovCircle) != 0;
+    style.health = number("health", style.health) != 0;
+    style.distance = number("distance", style.distance) != 0;
+    style.names = number("names", style.names) != 0;
+    style.speedGraph = number("speed_graph", style.speedGraph) != 0;
+    style.maxDistance = std::clamp(int(number("range", style.maxDistance)), 10, EspStyle::kAllDistances);
+    style.aimFov = float(std::clamp(number("aim_fov", style.aimFov), 5.0, 90.0));
+    setDeveloperAimFov(style.aimFov);
+    setDeveloperBunnyHopMax(float(number("hop_max", 2.5)));
+    setDeveloperAirStrafe(flag("air_strafe"));
+    setDeveloperAimKey(unsigned(number("aim_key", 0)));
+    if (const float speed = float(number("speed", 1)); speed != 1) requestDeveloperSpeed(speed);
+    if (flag("god_mode")) requestDeveloperInvincibility(true);
+    if (flag("noclip")) requestDeveloperNoclip(true);
+    if (flag("infinite_ammo")) requestDeveloperInfiniteAmmo(true);
+    if (flag("god_darklings")) requestDeveloperDarklingGod(true);
+    if (flag("bhop")) requestDeveloperBunnyHop(true);
+    if (flag("speedometer")) requestDeveloperSpeedometer(true);
+    if (flag("box")) requestDeveloperEspBox(true);
+    if (flag("skeleton")) requestDeveloperEspSkeleton(true);
+    if (flag("tracers")) requestDeveloperEspTracers(true);
+    if (flag("aimbot")) requestDeveloperAimbot(true);
+    std::printf("[Cheats] Loaded settings from %ls\n", path.c_str());
+}
+
+void CheatsOverlay::saveSettings() const {
+    if (settingsPath_.empty()) return;
+    const auto snapshot = developerSnapshot();
+    const auto& style = espStyle();
+    std::ofstream output(settingsPath_, std::ios::trunc);
+    if (!output) { std::fprintf(stderr, "[Cheats] Cannot save %ls\n", settingsPath_.c_str()); return; }
+    output << "speed=" << snapshot.playerSpeed << "\ngod_mode=" << snapshot.invincible
+           << "\nnoclip=" << snapshot.noclip << "\ninfinite_ammo=" << snapshot.infiniteAmmo
+           << "\ngod_darklings=" << snapshot.darklingGod << "\nbhop=" << snapshot.bunnyHop
+           << "\nspeedometer=" << snapshot.speedometer << "\nhop_max=" << developerBunnyHopMax()
+           << "\nair_strafe=" << developerAirStrafe() << "\nbox=" << snapshot.espBox
+           << "\nskeleton=" << snapshot.espSkeleton << "\ntracers=" << snapshot.espTracers
+           << "\naimbot=" << snapshot.aimbot << "\naim_key=" << developerAimKey()
+           << "\naim_fov=" << style.aimFov << "\nfov_circle=" << style.fovCircle
+           << "\nbox_color=" << style.box << "\nbone_color=" << style.bone
+           << "\ntracer_color=" << style.tracer << "\nopacity=" << unsigned(style.opacity)
+           << "\nhealth=" << style.health << "\ndistance=" << style.distance
+           << "\nnames=" << style.names << "\nspeed_graph=" << style.speedGraph
+           << "\nrange=" << style.maxDistance << "\n";
+}
+
 void CheatsOverlay::restoreDefaults() {
     requestDeveloperSpeed(1.f);
     requestDeveloperInvincibility(false);
@@ -359,6 +456,8 @@ void CheatsOverlay::restoreDefaults() {
     requestDeveloperBunnyHop(false);
     requestDeveloperSpeedometer(false);
     setDeveloperBunnyHopMax(2.5f);
+    setDeveloperAirStrafe(false);
+    setDeveloperAimKey(0);
     requestDeveloperAimbot(false);
     requestDeveloperEspBox(false);
     requestDeveloperEspSkeleton(false);
@@ -382,6 +481,9 @@ void CheatsOverlay::command(int id, int notification) {
     case kDarklingGod: if (clicked) requestDeveloperDarklingGod(checked(darklingGod_)); break;
     case kBunnyHop: if (clicked) requestDeveloperBunnyHop(checked(bunnyHop_)); break;
     case kSpeedometer: if (clicked) requestDeveloperSpeedometer(checked(speedometer_)); break;
+    case kAirStrafe: if (clicked) setDeveloperAirStrafe(checked(airStrafe_)); return;
+    case kSpeedGraph: if (clicked) espStyle().speedGraph = checked(speedGraph_); return;
+    case kAimKey: if (clicked) beginKeyCapture(); return;
     case kUnlock: if (clicked && developerSnapshot().hasActivePlayer) requestDeveloperUnlockDarkness(); break;
     case kMaxDarkness: if (clicked && developerSnapshot().hasActivePlayer) requestDeveloperMaxDarkness(); break;
     case kAimbot: if (clicked) requestDeveloperAimbot(checked(aimbot_)); break;
@@ -432,6 +534,13 @@ void CheatsOverlay::refreshStyle() {
     setCheck(fovCircle_, style.fovCircle);
     setCheck(health_, style.health);
     setCheck(distance_, style.distance);
+    setCheck(airStrafe_, developerAirStrafe());
+    setCheck(speedGraph_, style.speedGraph);
+    if (!capturingKey_) {
+        const auto key = developerAimKey();
+        const std::wstring text = L"HOLD: " + (key ? DarkRecomp::Native::keyboardKeyName(key) : std::wstring(L"V / MOUSE 4"));
+        SetWindowTextW(aimKey_, text.c_str());
+    }
     SendMessageW(hopMax_, TBM_SETPOS, TRUE, LPARAM(developerBunnyHopMax() * 10 + 0.5f));
     wchar_t hop[16];
     swprintf_s(hop, L"%.1fX", developerBunnyHopMax());
@@ -495,6 +604,7 @@ LRESULT CALLBACK CheatsOverlay::windowProc(HWND window, UINT message, WPARAM key
 LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
     if (message == WM_CREATE) { createControls(); return 0; }
     if (message == WM_TIMER && key == kRefreshTimer) { refresh(); return 0; }
+    if (message == WM_TIMER && key == kKeyTimer) { pollKeyCapture(); return 0; }
     if (message == WM_ERASEBKGND) {
         RECT area{};
         GetClientRect(window_, &area);
@@ -523,8 +633,11 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
         const HWND foreground = GetForegroundWindow();
         const bool restoreFocus = foreground == closed || foreground == owner_;
         KillTimer(closed, kRefreshTimer);
+        KillTimer(closed, kKeyTimer);
+        capturingKey_ = false;
+        saveSettings();
         SetWindowLongPtrW(closed, GWLP_USERDATA, 0);
-        window_ = speed_ = invincible_ = noclip_ = infiniteAmmo_ = darklingGod_ = bunnyHop_ = speedometer_ = hopMax_ = hopMaxValue_ = unlock_ = maxDarkness_ = aimbot_ =
+        window_ = speed_ = invincible_ = noclip_ = infiniteAmmo_ = darklingGod_ = bunnyHop_ = speedometer_ = hopMax_ = hopMaxValue_ = airStrafe_ = speedGraph_ = aimKey_ = unlock_ = maxDarkness_ = aimbot_ =
             weapons_ = give_ = box_ = skeleton_ = mission_ = load_ = shortcut_ = defaults_ = status_ =
             tracers_ = boxColor_ = boneColor_ = tracerColor_ = opacity_ = opacityValue_ = fov_ = fovValue_ =
             fovCircle_ = cameraFov_ = cameraFovValue_ = health_ = distance_ = names_ = maxDistance_ = maxDistanceValue_ = spawn_ = spawnButton_ = nullptr;

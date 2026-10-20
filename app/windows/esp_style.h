@@ -16,6 +16,7 @@ struct EspStyle {
     bool health = true;
     bool distance = true;
     bool names = true;
+    bool speedGraph = true;
     // Meters; kAllDistances shows every target.
     static constexpr int kAllDistances = 200;
     int maxDistance = kAllDistances;

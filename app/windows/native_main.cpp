@@ -372,6 +372,7 @@ int wmain(int argc, wchar_t** argv) {
         CheatsOverlay cheats(window, mouse, [] { return resolutionShortcut.enabled(); },
             [](bool enabled) { resolutionShortcut.setEnabled(enabled); });
         cheatsOverlay = &cheats;
+        cheats.useSettingsFile(settingsPath.parent_path() / L"DarkRecomp.cheats.ini");
         EspOverlay esp(window);
         AchievementsWindow achievements(window, mouse); achievementsWindow = &achievements;
         ClearMouseWindow clearMouseWindow;

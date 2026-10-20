@@ -218,7 +218,7 @@ Press **F7** to open or close the cheats overlay in the middle of the game
 window. It blocks gameplay input while open; close it, then click the game or
 press F2 to resume mouse control. Options last for this session only.
 
-- **Player:** speed (0.25x to 4x), **Bhop** (hold jump to keep hopping; speed builds by 30% a second up to **Hop max**, 1.5x to 10x), **Speedometer** (horizontal speed near the bottom of the screen), **God mode** (invincible), **Noclip**, **Infinite ammo**, **God darklings** (your summoned darklings cannot die)
+- **Player:** speed (0.25x to 4x), **Bhop** (hold jump to keep hopping; speed builds by 30% a second up to **Hop max**, 1.5x to 10x), **Air strafe** (while hopping, speed builds only when you strafe with A/D toward the way you turn the mouse, and slowly drops otherwise), **Speedometer** (horizontal speed near the bottom of the screen) with an optional **Speed graph** of the last three seconds, **God mode** (invincible), **Noclip**, **Infinite ammo**, **God darklings** (your summoned darklings cannot die)
   (guns never use rounds; reload once if the magazine was already empty),
   **Unlock all Darkness**, **Max Darkness level** and **Camera FOV** (Original or
   60 to 120 degrees; this session only, Video Settings saves it permanently).
@@ -226,6 +226,8 @@ press F2 to resume mouse control. Options last for this session only.
   to your crosshair (within about 25 degrees) while you hold **V** or **Mouse 4**.
   It does not check line of sight. The **FOV** slider sets how far from the
   crosshair it will lock (5 to 90 degrees); **Show FOV circle** draws that area.
+- **Aim:** the key button next to **Aimbot** sets its hold key: click it, then press any key or mouse button (Backspace restores V / Mouse 4, Escape cancels).
+- Cheat settings are saved to `DarkRecomp.cheats.ini` each time the overlay closes and restored on the next start.
 - **Weapons:** select a campaign gun and press **Give** (or double-click it).
   A weapon can only be given in a level that loads it.
 - **Visuals:** **Box ESP**, **Skeleton ESP** and **Tracers** (lines from the

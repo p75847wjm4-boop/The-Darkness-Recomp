@@ -1,4 +1,5 @@
 #include "developer_esp.h"
+#include "developer_tools.h"
 #include "developer_player_lookup.h"
 #include "developer_skeleton.h"
 #include "runtime.h"
@@ -308,10 +309,16 @@ EspSnapshot developerEspSnapshot() {
     return current;
 }
 
+static bool aimKeyHeld() {
+    const auto key = developerAimKey();
+    if (key) return (GetAsyncKeyState(int(key)) & 0x8000) != 0;
+    return ((GetAsyncKeyState('V') | GetAsyncKeyState(VK_XBUTTON1)) & 0x8000) != 0;
+}
+
 bool developerAimCorrection(PPCContext& ctx, uint8_t* base, uint32_t client,
                             int64_t& yawUnits, int64_t& pitchUnits) {
     if (!aimEnabled.load(std::memory_order_acquire) || !foreground() ||
-        !((GetAsyncKeyState('V') | GetAsyncKeyState(VK_XBUTTON1)) & 0x8000)) {
+        !aimKeyHeld()) {
         lockedTarget.store(0, std::memory_order_relaxed);
         return false;
     }

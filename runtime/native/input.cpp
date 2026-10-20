@@ -690,6 +690,7 @@ void NativeInput::mouseMotion(LONG dx, LONG dy) {
     // large bound only protects an unconsumed accumulator from integer overflow.
     constexpr int64_t limit = int64_t(1) << 52;
     mouseX_ = std::clamp(mouseX_ + int64_t(dx), -limit, limit);
+    noteDeveloperMouseTurn(dx);
     mouseY_ = std::clamp(mouseY_ + int64_t(dy), -limit, limit);
     mousePending_ = true;
     ++counters_.mouseEvents;
@@ -941,9 +942,9 @@ XINPUT_GAMEPAD NativeInput::keyboardLocked() {
         // Bunny hop: re-press jump every 60 ms while held so each landing
         // starts the next jump; holding also builds the hop speed boost.
         const bool hop = developerBunnyHopEnabled();
-        noteDeveloperJumpHeld(hop);
+        updateDeveloperBunnyHop(hop, int(down(KeyboardAction::MoveRight)) - int(down(KeyboardAction::MoveLeft)));
         if (!hop || (GetTickCount64() / 60) % 2 == 0) pad.wButtons |= XINPUT_GAMEPAD_Y;
-    } else noteDeveloperJumpHeld(false);
+    } else updateDeveloperBunnyHop(false, 0);
     if (keys_[VK_ESCAPE]) pad.wButtons |= escapePauses_ ? XINPUT_GAMEPAD_START : XINPUT_GAMEPAD_B;
     auto axis = [&](KeyboardAction negative, KeyboardAction positive) -> SHORT {
         if (down(negative) == down(positive)) return 0;

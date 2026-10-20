@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <array>
 #include <cstdint>
 
 // Click-through, color-keyed layer over the game's client area. The display
@@ -28,6 +29,10 @@ private:
     HGDIOBJ previousBitmap_{};
     HPEN pen_{}, bonePen_{}, tracerPen_{}, circlePen_{};
     HFONT speedFont_{};
+    // Speedometer history: one sample per 33 ms over the last three seconds.
+    std::array<float, 90> speeds_{};
+    size_t speedNext_ = 0;
+    unsigned long long lastSpeedSample_ = 0;
     COLORREF penColors_[4]{};
     BYTE opacity_ = 0;
     int bufferWidth_ = 0, bufferHeight_ = 0;

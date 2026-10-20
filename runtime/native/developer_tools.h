@@ -63,11 +63,19 @@ void requestDeveloperInvincibility(bool enabled);
 void requestDeveloperNoclip(bool enabled);
 void requestDeveloperInfiniteAmmo(bool enabled);
 void requestDeveloperBunnyHop(bool enabled);
-// Input thread: whether held jump should re-press, and the held state.
+// Input thread: whether held jump should re-press. Each pad poll reports the
+// held hop and strafe direction (-1 left, 0, +1 right); mouse motion reports
+// horizontal turns. Holding jump builds speed (+30%/s); with air strafing it
+// builds only while strafing toward the mouse turn (+80%/s) and decays otherwise.
 bool developerBunnyHopEnabled() noexcept;
-void noteDeveloperJumpHeld(bool held) noexcept;
-// Speed multiplier earned by holding jump: +30% per second, up to the max.
+void updateDeveloperBunnyHop(bool hopping, int strafe) noexcept;
+void noteDeveloperMouseTurn(long long dx) noexcept;
 float developerBunnyHopBoost() noexcept;
+void setDeveloperAirStrafe(bool enabled) noexcept;
+bool developerAirStrafe() noexcept;
+// Aimbot hold key (Win32 virtual key); 0 keeps the default V or Mouse 4.
+void setDeveloperAimKey(unsigned virtualKey) noexcept;
+unsigned developerAimKey() noexcept;
 void setDeveloperBunnyHopMax(float multiplier) noexcept; // 1.5..10
 float developerBunnyHopMax() noexcept;
 void requestDeveloperSpeedometer(bool enabled);
