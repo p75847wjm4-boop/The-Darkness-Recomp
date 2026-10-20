@@ -31,4 +31,10 @@ DeveloperDarknessResult grantDeveloperWeapon(PPCContext& ctx, uint8_t* base,
 // command does. Templates the level never loaded fail and are reported.
 DeveloperDarknessResult spawnDeveloperObject(PPCContext& ctx, uint8_t* base,
     const DeveloperPlayerHandles& player, std::string_view name, uint32_t client);
+// Removes every object spawnDeveloperObject created that still exists.
+DeveloperDarknessResult removeDeveloperSpawns(PPCContext& ctx, uint8_t* base,
+    const DeveloperPlayerHandles& player);
+// Remembers the player's position, or moves the player back to it.
+DeveloperDarknessResult saveDeveloperPosition(uint8_t* base, const DeveloperPlayerHandles& player);
+DeveloperDarknessResult loadDeveloperPosition(uint8_t* base, const DeveloperPlayerHandles& player);
 }

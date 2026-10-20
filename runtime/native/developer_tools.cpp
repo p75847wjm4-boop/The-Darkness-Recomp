@@ -25,7 +25,7 @@ std::mutex stateMutex;
 DeveloperSnapshot state;
 std::optional<std::string> pendingMission;
 std::optional<std::string> pendingWeapon, pendingSpawn;
-bool pendingProbe = false;
+bool pendingProbe = false, pendingRemoveSpawns = false, pendingSavePosition = false, pendingLoadPosition = false;
 bool playerToolsEnabled = false;
 bool pendingDarknessUnlock = false;
 bool pendingDarknessLevel = false;
@@ -37,6 +37,9 @@ std::atomic<float> hopBoost{1};
 std::atomic<long long> mouseTurn{0};
 std::atomic<bool> airStrafe{false};
 std::atomic<unsigned> aimKey{0};
+std::atomic<int> aimMode{0};
+std::atomic<float> aimSmoothing{0.2f};
+std::atomic<uint64_t> hopStarted{0};
 std::atomic<float> bunnyHopMax{2.5f};
 std::atomic<float> playerSpeed{-1};
 
@@ -66,7 +69,7 @@ void measurePlayerSpeed(uint8_t* base, uint32_t actor) {
 }
 
 void refreshWorkLocked() {
-    needsUpdate.store(panelVisible || pendingMission.has_value() || pendingWeapon.has_value() || pendingSpawn.has_value() || pendingProbe || playerToolsEnabled ||
+    needsUpdate.store(panelVisible || pendingMission.has_value() || pendingWeapon.has_value() || pendingSpawn.has_value() || pendingProbe || pendingRemoveSpawns || pendingSavePosition || pendingLoadPosition || playerToolsEnabled ||
         pendingDarknessUnlock || pendingDarknessLevel, std::memory_order_release);
 }
 
@@ -283,8 +286,14 @@ void updateDeveloperBunnyHop(bool hopping, int strafe) noexcept {
     last = now;
     const auto turn = mouseTurn.exchange(0, std::memory_order_relaxed);
     float boost = hopBoost.load(std::memory_order_relaxed);
-    if (!hopping) boost = 1;
-    else if (!airStrafe.load(std::memory_order_relaxed)) boost += 0.3f * seconds;
+    if (!hopping) {
+        boost = 1;
+        hopStarted.store(0, std::memory_order_relaxed);
+    } else if (!hopStarted.load(std::memory_order_relaxed)) {
+        hopStarted.store(GetTickCount64(), std::memory_order_relaxed);
+    }
+    if (!hopping) {
+    } else if (!airStrafe.load(std::memory_order_relaxed)) boost += 0.3f * seconds;
     else if (strafe && turn && (turn > 0) == (strafe > 0)) boost += 0.8f * seconds;
     else boost -= 0.15f * seconds;
     hopBoost.store(std::clamp(boost, 1.f, bunnyHopMax.load(std::memory_order_relaxed)), std::memory_order_relaxed);
@@ -298,6 +307,16 @@ void setDeveloperAimKey(unsigned virtualKey) noexcept {
     aimKey.store(virtualKey < 256 ? virtualKey : 0, std::memory_order_relaxed);
 }
 unsigned developerAimKey() noexcept { return aimKey.load(std::memory_order_relaxed); }
+float developerBunnyHopSeconds() noexcept {
+    const auto started = hopStarted.load(std::memory_order_relaxed);
+    return started && bunnyHopOn.load(std::memory_order_relaxed) ? float(GetTickCount64() - started) / 1000 : 0;
+}
+void setDeveloperAimMode(int mode) noexcept { aimMode.store(mode == 1 ? 1 : 0, std::memory_order_relaxed); }
+int developerAimMode() noexcept { return aimMode.load(std::memory_order_relaxed); }
+void setDeveloperAimSmoothing(float gain) noexcept {
+    if (std::isfinite(gain)) aimSmoothing.store(std::clamp(gain, 0.05f, 1.f), std::memory_order_relaxed);
+}
+float developerAimSmoothing() noexcept { return aimSmoothing.load(std::memory_order_relaxed); }
 void setDeveloperBunnyHopMax(float multiplier) noexcept {
     if (std::isfinite(multiplier)) bunnyHopMax.store(std::clamp(multiplier, 1.5f, 10.f), std::memory_order_relaxed);
 }
@@ -360,6 +379,24 @@ void requestDeveloperProbe() {
     requested("Probe dump queued.");
 }
 
+void requestDeveloperRemoveSpawns() {
+    std::lock_guard lock(stateMutex);
+    pendingRemoveSpawns = true;
+    requested("Removing spawned characters.");
+}
+
+void requestDeveloperSavePosition() {
+    std::lock_guard lock(stateMutex);
+    pendingSavePosition = true;
+    requested("Saving position.");
+}
+
+void requestDeveloperLoadPosition() {
+    std::lock_guard lock(stateMutex);
+    pendingLoadPosition = true;
+    requested("Teleporting.");
+}
+
 void requestDeveloperUnlockDarkness() {
     std::lock_guard lock(stateMutex);
     pendingDarknessUnlock = true;
@@ -380,6 +417,7 @@ void resetDeveloperTools() {
     pendingSpawn.reset();
     playerToolsEnabled = false;
     pendingDarknessUnlock = pendingDarknessLevel = pendingProbe = false;
+    pendingRemoveSpawns = pendingSavePosition = pendingLoadPosition = false;
     ++requestRevision;
     resetDeveloperPlayer();
     clearDeveloperEsp();
@@ -389,7 +427,7 @@ void resetDeveloperTools() {
 bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool missionReady) {
     std::optional<std::string> mission, weapon, spawn;
     float speed;
-    bool invincible, noclip, infiniteAmmo, darklingGod, bunnyHop, speedometer, espBox, espSkeleton, espTracers, aimbot, enabled, unlockDarkness, maxDarkness, probe, overlay;
+    bool invincible, noclip, infiniteAmmo, darklingGod, bunnyHop, speedometer, espBox, espSkeleton, espTracers, aimbot, enabled, unlockDarkness, maxDarkness, probe, overlay, removeSpawns, savePosition, loadPosition;
     uint64_t request;
     {
         std::lock_guard lock(stateMutex);
@@ -414,6 +452,9 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         unlockDarkness = std::exchange(pendingDarknessUnlock, false);
         maxDarkness = std::exchange(pendingDarknessLevel, false);
         probe = std::exchange(pendingProbe, false);
+        removeSpawns = std::exchange(pendingRemoveSpawns, false);
+        savePosition = std::exchange(pendingSavePosition, false);
+        loadPosition = std::exchange(pendingLoadPosition, false);
         overlay = panelVisible;
         request = requestRevision;
     }
@@ -447,7 +488,12 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         collectDeveloperEsp(call, base, client, resolveDeveloperPlayer(call, base, client), espBox, espSkeleton,
                             espTracers, aimbot);
     else clearDeveloperEsp();
-    if (probe) {
+    if (removeSpawns || savePosition || loadPosition) {
+        const auto handles = resolveDeveloperPlayer(call, base, client);
+        const auto done = removeSpawns ? removeDeveloperSpawns(call, base, handles) :
+            savePosition ? saveDeveloperPosition(base, handles) : loadDeveloperPosition(base, handles);
+        publish(request, canLoad, player.hasActivePlayer, done.status, false, true);
+    } else if (probe) {
         dumpDeveloperProbe(call, base, client);
         publish(request, canLoad, player.hasActivePlayer, "Probe written to the runtime log.", false, true);
     } else if (spawn) {

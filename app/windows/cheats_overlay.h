@@ -45,6 +45,7 @@ private:
     void slider(HWND control);
     void cycleColor(unsigned& index, HWND button, const wchar_t* label);
     void refreshStyle();
+    void applyTheme();
     void beginKeyCapture();
     void pollKeyCapture();
     void saveSettings() const;
@@ -53,7 +54,8 @@ private:
     NativeMouseWindow& mouse_;
     std::function<bool()> resolutionShortcut_;
     std::function<void(bool)> setResolutionShortcut_;
-    HWND window_{}, speed_{}, invincible_{}, noclip_{}, infiniteAmmo_{}, darklingGod_{}, bunnyHop_{}, speedometer_{}, hopMax_{}, hopMaxValue_{}, airStrafe_{}, speedGraph_{}, aimKey_{}, unlock_{}, maxDarkness_{},
+    HWND window_{}, speed_{}, invincible_{}, noclip_{}, infiniteAmmo_{}, darklingGod_{}, bunnyHop_{}, speedometer_{}, hopMax_{}, hopMaxValue_{}, airStrafe_{}, speedGraph_{}, aimKey_{}, aimMode_{}, aimSmooth_{}, aimSmoothValue_{},
+         crosshair_{}, crosshairColor_{}, crosshairSize_{}, crosshairSizeValue_{}, theme_{}, menuOpacity_{}, menuOpacityValue_{}, unlock_{}, maxDarkness_{},
          aimbot_{}, weapons_{}, give_{}, box_{}, skeleton_{}, mission_{}, load_{}, shortcut_{},
          defaults_{}, status_{}, tracers_{}, boxColor_{}, boneColor_{}, tracerColor_{}, opacity_{},
          opacityValue_{}, fov_{}, fovValue_{}, fovCircle_{}, cameraFov_{}, cameraFovValue_{}, health_{}, distance_{}, names_{}, maxDistance_{}, maxDistanceValue_{}, spawn_{}, spawnButton_{};

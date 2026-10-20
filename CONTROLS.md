@@ -227,6 +227,11 @@ press F2 to resume mouse control. Options last for this session only.
   It does not check line of sight. The **FOV** slider sets how far from the
   crosshair it will lock (5 to 90 degrees); **Show FOV circle** draws that area.
 - **Aim:** the key button next to **Aimbot** sets its hold key: click it, then press any key or mouse button (Backspace restores V / Mouse 4, Escape cancels).
+- **Teleport:** **Save position** / **Load position** (or **F9** / **F10** in game) store your spot and return to it.
+- **Aimbot tuning:** choose the target nearest the crosshair or nearest by distance, and how quickly the aim moves (**Smooth**).
+- **Crosshair:** off, dot, cross or circle, with a color and size.
+- **Menu:** cycle the F7 menu **Theme** and set its **Opacity**.
+- **Spawn:** **Remove spawned** deletes every character you spawned. The speedometer also shows the current hop run's time and best speed.
 - Cheat settings are saved to `DarkRecomp.cheats.ini` each time the overlay closes and restored on the next start.
 - **Weapons:** select a campaign gun and press **Give** (or double-click it).
   A weapon can only be given in a level that loads it.

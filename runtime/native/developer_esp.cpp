@@ -342,11 +342,18 @@ bool developerAimCorrection(PPCContext& ctx, uint8_t* base, uint32_t client,
     const EspTarget* chosen = nullptr;
     float best = cone, dx = 0, dy = 0, dz = 0;
     const auto locked = lockedTarget.load(std::memory_order_relaxed);
+    // Mode 0 picks the target nearest the crosshair; mode 1 the nearest one
+    // inside the cone by distance.
+    const bool byDistance = developerAimMode() == 1;
+    float nearest = kAimRange * 2;
     for (const auto& target : targets) {
         float x, y, z;
         const float angle = direction(target, x, y, z);
         if (target.id == locked && angle < cone * 1.5f) { chosen = &target; dx = x; dy = y; dz = z; break; }
-        if (angle < best) { best = angle; chosen = &target; dx = x; dy = y; dz = z; }
+        if (byDistance) {
+            const float length = std::sqrt(x * x + y * y + z * z);
+            if (angle < cone && length < nearest) { nearest = length; chosen = &target; dx = x; dy = y; dz = z; }
+        } else if (angle < best) { best = angle; chosen = &target; dx = x; dy = y; dz = z; }
     }
     if (!chosen) { lockedTarget.store(0, std::memory_order_relaxed); return false; }
     lockedTarget.store(chosen->id, std::memory_order_relaxed);
@@ -354,7 +361,8 @@ bool developerAimCorrection(PPCContext& ctx, uint8_t* base, uint32_t client,
     const double pitchError = std::atan2(dz, std::hypot(dx, dy)) - std::asin(std::clamp(f[2], -1.0f, 1.0f));
     // The client applies a look packet on its next update, so correct only part
     // of the error per call and stop inside a small dead zone.
-    constexpr double gain = 0.2, limit = 1500, deadZone = 0.004;
+    const double gain = developerAimSmoothing();
+    constexpr double limit = 1500, deadZone = 0.004;
     const auto step = [&](double error) {
         if (std::abs(error) < deadZone) return int64_t(0);
         return int64_t(std::clamp(error * kUnitsPerRadian * gain, -limit, limit));

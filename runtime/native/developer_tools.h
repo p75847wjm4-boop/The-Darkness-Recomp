@@ -92,6 +92,17 @@ bool requestDeveloperSpawn(std::string_view templateName);
 // Darkling templates every campaign level loads for the summon power.
 std::span<const std::string_view> developerSpawnSuggestions() noexcept;
 void requestDeveloperProbe();
+void requestDeveloperRemoveSpawns();
+void requestDeveloperSavePosition();
+void requestDeveloperLoadPosition();
+// Seconds since the current bunny hop run started; 0 while not hopping.
+float developerBunnyHopSeconds() noexcept;
+// Aimbot target choice (0 = nearest the crosshair, 1 = nearest by distance)
+// and the share of the remaining aim error corrected per update (0.05..1).
+void setDeveloperAimMode(int mode) noexcept;
+int developerAimMode() noexcept;
+void setDeveloperAimSmoothing(float gain) noexcept;
+float developerAimSmoothing() noexcept;
 void requestDeveloperUnlockDarkness();
 void requestDeveloperMaxDarkness();
 void resetDeveloperTools();

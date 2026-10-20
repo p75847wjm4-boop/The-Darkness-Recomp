@@ -33,6 +33,7 @@ private:
     std::array<float, 90> speeds_{};
     size_t speedNext_ = 0;
     unsigned long long lastSpeedSample_ = 0;
+    float lastRun_ = 0, shownRun_ = 0, bestSpeed_ = 0;
     COLORREF penColors_[4]{};
     BYTE opacity_ = 0;
     int bufferWidth_ = 0, bufferHeight_ = 0;

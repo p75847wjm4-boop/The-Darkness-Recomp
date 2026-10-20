@@ -92,6 +92,7 @@ static LRESULT CALLBACK NativeWindowProc(HWND window, UINT message, WPARAM wPara
             return message == WM_XBUTTONDOWN || message == WM_XBUTTONUP ? TRUE : 0;
     }
     if (resolutionShortcut.handle(message, wParam, lParam)) return 0;
+
     if (message == WM_GETMINMAXINFO) {
         RECT minimum{0, 0, 320, 180};
         AdjustWindowRect(&minimum, WS_OVERLAPPEDWINDOW, FALSE);
@@ -540,6 +541,15 @@ int wmain(int argc, wchar_t** argv) {
                 if (message.message == WM_KEYDOWN && !(message.lParam & (LPARAM(1) << 30))) {
                     if (message.wParam == VK_F7) { developerTools.close(); achievements.close(); }
                     else if (message.wParam == VK_F5) cheats.close();
+                }
+                // Cheat teleport hotkeys in the game window: F9 saves, F10 returns.
+                if (message.hwnd == window && (message.message == WM_KEYDOWN || message.message == WM_SYSKEYDOWN) &&
+                    (message.wParam == VK_F9 || message.wParam == VK_F10)) {
+                    if (!(message.lParam & (LPARAM(1) << 30))) {
+                        if (message.wParam == VK_F9) DarkRecomp::Native::requestDeveloperSavePosition();
+                        else DarkRecomp::Native::requestDeveloperLoadPosition();
+                    }
+                    continue;
                 }
                 if (achievements.handleMessage(message)) continue;
                 if (cheats.handleMessage(message)) continue;

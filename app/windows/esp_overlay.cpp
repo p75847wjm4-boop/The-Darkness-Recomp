@@ -72,7 +72,8 @@ void EspOverlay::update() {
     const auto& style = espStyle();
     const bool circle = style.fovCircle && view.aimbot;
     const bool speed = DarkRecomp::Native::developerPlayerSpeed() >= 0;
-    const bool visible = ((view.valid && (view.box || view.skeleton || view.tracers || circle)) || speed) &&
+    const bool visible = ((view.valid && (view.box || view.skeleton || view.tracers || circle)) || speed ||
+                          style.crosshair) &&
                          IsWindow(owner_) && !IsIconic(owner_);
     if (!visible) {
         if (shown_) { ShowWindow(window_, SW_HIDE); shown_ = false; }
@@ -166,6 +167,22 @@ void EspOverlay::paint(HDC dc, int width, int height) {
         RECT line{0, height - 110, width, height - 76};
         SetTextColor(dc, RGB(255, 255, 255));
         if (length > 0) DrawTextW(dc, text, length, &line, DT_CENTER | DT_SINGLELINE | DT_NOCLIP);
+        // Bunny hop run: time since the hop started and its best speed so far.
+        const float run = DarkRecomp::Native::developerBunnyHopSeconds();
+        if (run > 0) {
+            if (run < lastRun_) bestSpeed_ = 0;
+            bestSpeed_ = (std::max)(bestSpeed_, speed);
+        }
+        if (run > 0 || lastRun_ > 0) {
+            if (run > 0) shownRun_ = run;
+            wchar_t stats[64];
+            const int statsLength = swprintf_s(stats, L"RUN %.1f s   BEST %.1f m/s", shownRun_, bestSpeed_);
+            RECT statsLine{0, height - 76, width, height - 48};
+            SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
+            SetTextColor(dc, RGB(200, 200, 200));
+            if (statsLength > 0) DrawTextW(dc, stats, statsLength, &statsLine, DT_CENTER | DT_SINGLELINE | DT_NOCLIP);
+        }
+        if (run > 0) lastRun_ = run;
         SetTextColor(dc, colors[0]);
     }
     SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
@@ -208,6 +225,27 @@ void EspOverlay::paint(HDC dc, int width, int height) {
             const std::wstring name(target.name.begin(), target.name.end());
             TextOutW(dc, left, int(head.y) - (length > 0 ? 28 : 14), name.c_str(), int(name.size()));
         }
+    }
+    if (style.crosshair) {
+        const COLORREF color = EspStyle::palette[style.crosshairColor % 8];
+        const HPEN pen = CreatePen(PS_SOLID, 2, color);
+        const auto previous = SelectObject(dc, pen);
+        const int cx = width / 2, cy = height / 2, size = std::clamp(style.crosshairSize, 2, 40);
+        if (style.crosshair == 1) {
+            const HBRUSH dot = CreateSolidBrush(color);
+            const RECT center{cx - 2, cy - 2, cx + 3, cy + 3};
+            FillRect(dc, &center, dot);
+            DeleteObject(dot);
+        } else if (style.crosshair == 2) {
+            MoveToEx(dc, cx - size, cy, nullptr); LineTo(dc, cx - 3, cy);
+            MoveToEx(dc, cx + 3, cy, nullptr); LineTo(dc, cx + size + 1, cy);
+            MoveToEx(dc, cx, cy - size, nullptr); LineTo(dc, cx, cy - 3);
+            MoveToEx(dc, cx, cy + 3, nullptr); LineTo(dc, cx, cy + size + 1);
+        } else {
+            Ellipse(dc, cx - size, cy - size, cx + size + 1, cy + size + 1);
+        }
+        SelectObject(dc, previous);
+        DeleteObject(pen);
     }
     SelectObject(dc, oldBrush);
     SelectObject(dc, oldPen);

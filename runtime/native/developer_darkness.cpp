@@ -1,4 +1,5 @@
 #include "developer_darkness.h"
+#include <string>
 #include "developer_tools.h"
 #include "developer_player_lookup.h"
 #include "runtime.h"
@@ -14,6 +15,11 @@
 #include <vector>
 
 namespace DarkRecomp::Native {
+namespace {
+std::vector<uint32_t> spawnedObjects;
+float savedPosition[3]{};
+bool hasSavedPosition = false;
+}
 namespace {
 // Retail82126828's giveall/level commands and the named power-bit table at
 // 82A473AC establish these fields. The six bits are CreepingDark, DemonArm,
@@ -497,6 +503,7 @@ DeveloperDarknessResult spawnDeveloperObject(PPCContext& ctx, uint8_t* base,
     // precached on the client; otherwise newly loaded body parts are invisible.
     const bool mirrored = clientResources(ctx, base, player, client, resources, {});
     std::fprintf(stderr, "[Spawn] %s -> object %d\n", label.c_str(), id);
+    spawnedObjects.push_back(uint32_t(id));
     if (!mirrored) return {true, "Spawned " + label + ", but its new models could not be prepared for display."};
     return {true, "Spawned " + label + "."};
 }
@@ -546,5 +553,59 @@ DeveloperDarknessResult applyDeveloperDarkness(PPCContext& ctx, uint8_t* base,
     if (unlock && maximum) return {true, "All Darkness powers and guns unlocked; Darkness level maximized. Grants may be autosaved."};
     if (unlock) return {true, "All Darkness powers and guns unlocked. Grants may be autosaved."};
     return {true, "Darkness level maximized. Grants may be autosaved."};
+}
+
+// Spawned object ids, in order; removal skips ids now used by other objects.
+DeveloperDarknessResult removeDeveloperSpawns(PPCContext& ctx, uint8_t* base,
+    const DeveloperPlayerHandles& player) {
+    if (!currentPlayer(base, player)) return {false, "Removing spawns requires an active player."};
+    const auto destroy = method(base, player.server, 600);
+    const auto objects = PPC_LOAD_U32(player.server + 1460);
+    if (!destroy || !object(base, objects, 28)) return {false, "Removing spawns is unavailable here."};
+    const auto count = PPC_LOAD_U32(objects + 4), items = PPC_LOAD_U32(objects + 24);
+    unsigned removed = 0;
+    for (const auto id : spawnedObjects) {
+        if (id >= count || id == PPC_LOAD_U16(player.actor + 368)) continue;
+        const auto target = PPC_LOAD_U32(items + id * 4);
+        // A dead or removed NPC's id may be reused; only remove characters.
+        if (!object(base, target, 400) || (PPC_LOAD_U32(target) != 0x820626C8 &&
+            PPC_LOAD_U32(target) != 0x820614D0)) continue;
+        auto call = ctx;
+        call.r1.u32 -= 0x100;
+        PPC_STORE_U32(call.r1.u32, ctx.r1.u32);
+        call.r3.u64 = player.server; call.r4.u64 = id; call.r5.u64 = 0;
+        PPCSafeIndirect(call, base, destroy);
+        ++removed;
+    }
+    spawnedObjects.clear();
+    return {true, removed ? "Removed " + std::to_string(removed) + " spawned characters." :
+                            std::string("No spawned characters to remove.")};
+}
+
+// The world matrix at +16 keeps its position row at +64; +80 and +144 hold
+// the previous and physics copies, whose rows at +128 and +192 move with it.
+DeveloperDarknessResult saveDeveloperPosition(uint8_t* base, const DeveloperPlayerHandles& player) {
+    if (!currentPlayer(base, player)) return {false, "Saving a position requires an active player."};
+    for (int i = 0; i < 3; ++i) savedPosition[i] = std::bit_cast<float>(PPC_LOAD_U32(player.actor + 64 + i * 4));
+    hasSavedPosition = true;
+    char text[96];
+    std::snprintf(text, sizeof(text), "Position saved (%.0f, %.0f, %.0f).", savedPosition[0], savedPosition[1], savedPosition[2]);
+    return {true, text};
+}
+
+DeveloperDarknessResult loadDeveloperPosition(uint8_t* base, const DeveloperPlayerHandles& player) {
+    if (!currentPlayer(base, player)) return {false, "Loading a position requires an active player."};
+    if (!hasSavedPosition) return {false, "No position saved yet. Press F9 or Save position first."};
+    float current[3];
+    for (int i = 0; i < 3; ++i) current[i] = std::bit_cast<float>(PPC_LOAD_U32(player.actor + 64 + i * 4));
+    for (const uint32_t row : {64u, 128u, 192u}) {
+        // Move a copy only if it tracks the current position.
+        const float dx = std::bit_cast<float>(PPC_LOAD_U32(player.actor + row)) - current[0];
+        const float dy = std::bit_cast<float>(PPC_LOAD_U32(player.actor + row + 4)) - current[1];
+        if (row != 64 && dx * dx + dy * dy > 64 * 64) continue;
+        for (int i = 0; i < 3; ++i)
+            PPC_STORE_U32(player.actor + row + i * 4, std::bit_cast<uint32_t>(savedPosition[i]));
+    }
+    return {true, "Teleported to the saved position."};
 }
 }

@@ -25,15 +25,16 @@ constexpr UINT_PTR kRefreshTimer = 1, kKeyTimer = 2;
 enum : int {
     kSpeed = 2001, kInvincible, kNoclip, kInfiniteAmmo, kUnlock, kMaxDarkness, kAimbot,
     kWeapons, kGive, kBox, kSkeleton, kMission, kLoad, kShortcut, kDefaults, kProbe,
-    kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov, kHealth, kSpawnName, kSpawn, kDistance, kMaxDistance, kNames, kDarklingGod, kBunnyHop, kSpeedometer, kHopMax, kAirStrafe, kSpeedGraph, kAimKey
+    kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov, kHealth, kSpawnName, kSpawn, kDistance, kMaxDistance, kNames, kDarklingGod, kBunnyHop, kSpeedometer, kHopMax, kAirStrafe, kSpeedGraph, kAimKey, kRemoveSpawns, kSavePosition, kLoadPosition, kAimMode, kAimSmooth,
+    kCrosshair, kCrosshairColor, kCrosshairSize, kTheme, kMenuOpacity
 };
-constexpr int kWidth = 640, kHeight = 704;
-constexpr BYTE kOpacity = 235;
-constexpr COLORREF kBackground = RGB(12, 12, 14), kField = RGB(28, 28, 32),
-                   kText = RGB(230, 230, 230), kDim = RGB(140, 140, 140);
+constexpr int kWidth = 960, kHeight = 704;
+constexpr COLORREF kDim = RGB(140, 140, 140);
 constexpr std::array<float, 9> kSpeeds{.25f, .5f, .75f, 1.f, 1.25f, 1.5f, 2.f, 3.f, 4.f};
 constexpr std::array<const wchar_t*, 9> kSpeedNames{
     L"0.25X", L"0.5X", L"0.75X", L"1X (NORMAL)", L"1.25X", L"1.5X", L"2X", L"3X", L"4X"};
+
+const EspStyle::Theme& theme() { return EspStyle::kThemes[espStyle().menuTheme % EspStyle::kThemes.size()]; }
 
 std::wstring upper(std::string_view text) {
     std::wstring result;
@@ -114,8 +115,8 @@ bool CheatsOverlay::open() {
     inputGate_ = true;
     INITCOMMONCONTROLSEX common{sizeof(common), ICC_BAR_CLASSES};
     InitCommonControlsEx(&common);
-    if (!background_) background_ = CreateSolidBrush(kBackground);
-    if (!field_) field_ = CreateSolidBrush(kField);
+    if (!background_) background_ = CreateSolidBrush(theme().background);
+    if (!field_) field_ = CreateSolidBrush(theme().field);
     if (!titleFont_) titleFont_ = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
     WNDCLASSW windowClass{};
@@ -147,7 +148,7 @@ bool CheatsOverlay::open() {
         std::fputs("[Cheats] Cannot create overlay window.\n", stderr);
         return false;
     }
-    SetLayeredWindowAttributes(window_, 0, kOpacity, LWA_ALPHA);
+    SetLayeredWindowAttributes(window_, 0, espStyle().menuOpacity, LWA_ALPHA);
     setDeveloperToolsVisible(true);
     refresh();
     SetTimer(window_, kRefreshTimer, 250, nullptr);
@@ -252,7 +253,7 @@ void CheatsOverlay::createControls() {
                      WS_VSCROLL | WS_TABSTOP, 342, 374, 272, 320, kSpawnName);
     fillSpawnList({});
     spawnButton_ = button(window_, L"SPAWN", 342, 408, 90, kSpawn);
-    control(window_, L"STATIC", L"OR TYPE A TEMPLATE NAME.", 0, 440, 412, 176, 18);
+    button(window_, L"REMOVE SPAWNED", 440, 408, 174, kRemoveSpawns);
 
     group(window_, L"SETTINGS", 328, 464, 300, 92);
     shortcut_ = check(window_, L"ENABLE F6 RESOLUTION SHORTCUT", 342, 486, 276, kShortcut);
@@ -263,6 +264,34 @@ void CheatsOverlay::createControls() {
     status_ = control(window_, L"STATIC", L"", SS_LEFT, 330, 586, 296, 64);
     control(window_, L"STATIC", L"F7 OR ESC CLOSES. MISSION LOADS, DARKNESS GRANTS AND GIVEN WEAPONS MAY AUTOSAVE.",
             0, 330, 652, 296, 44);
+
+    // Third column: teleport, aim tuning, crosshair, menu look.
+    group(window_, L"TELEPORT", 640, 40, 304, 92);
+    button(window_, L"SAVE POSITION", 654, 62, 134, kSavePosition);
+    button(window_, L"LOAD POSITION", 796, 62, 134, kLoadPosition);
+    control(window_, L"STATIC", L"HOTKEYS: F9 SAVES, F10 LOADS.", 0, 654, 100, 276, 18);
+
+    group(window_, L"AIMBOT TUNING", 640, 140, 304, 92);
+    aimMode_ = button(window_, L"", 654, 162, 276, kAimMode);
+    control(window_, L"STATIC", L"SMOOTH", 0, 654, 200, 60, 18);
+    aimSmooth_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 714, 196, 160, 26, kAimSmooth);
+    SendMessageW(aimSmooth_, TBM_SETRANGE, FALSE, MAKELPARAM(5, 100)); // Percent of the error per update.
+    aimSmoothValue_ = control(window_, L"STATIC", L"", 0, 878, 200, 56, 18);
+
+    group(window_, L"CROSSHAIR", 640, 240, 304, 92);
+    crosshair_ = button(window_, L"", 654, 262, 134, kCrosshair);
+    crosshairColor_ = button(window_, L"", 796, 262, 134, kCrosshairColor);
+    control(window_, L"STATIC", L"SIZE", 0, 654, 300, 60, 18);
+    crosshairSize_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 714, 296, 160, 26, kCrosshairSize);
+    SendMessageW(crosshairSize_, TBM_SETRANGE, FALSE, MAKELPARAM(2, 40));
+    crosshairSizeValue_ = control(window_, L"STATIC", L"", 0, 878, 300, 56, 18);
+
+    group(window_, L"MENU", 640, 340, 304, 92);
+    theme_ = button(window_, L"", 654, 362, 276, kTheme);
+    control(window_, L"STATIC", L"OPACITY", 0, 654, 400, 60, 18);
+    menuOpacity_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 714, 396, 160, 26, kMenuOpacity);
+    SendMessageW(menuOpacity_, TBM_SETRANGE, FALSE, MAKELPARAM(40, 100));
+    menuOpacityValue_ = control(window_, L"STATIC", L"", 0, 878, 400, 56, 18);
     refreshStyle();
 }
 
@@ -356,6 +385,16 @@ void CheatsOverlay::spawn() {
     refresh();
 }
 
+// Rebuild the theme brushes and repaint every control.
+void CheatsOverlay::applyTheme() {
+    if (background_) DeleteObject(background_);
+    if (field_) DeleteObject(field_);
+    background_ = CreateSolidBrush(theme().background);
+    field_ = CreateSolidBrush(theme().field);
+    refreshStyle();
+    if (window_) RedrawWindow(window_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME);
+}
+
 // Aimbot key: the next key or mouse button pressed (not left click, which
 // started the capture). Escape cancels; Backspace restores V / Mouse 4.
 void CheatsOverlay::beginKeyCapture() {
@@ -412,6 +451,13 @@ void CheatsOverlay::useSettingsFile(const std::filesystem::path& path) {
     setDeveloperBunnyHopMax(float(number("hop_max", 2.5)));
     setDeveloperAirStrafe(flag("air_strafe"));
     setDeveloperAimKey(unsigned(number("aim_key", 0)));
+    setDeveloperAimMode(int(number("aim_mode", 0)));
+    setDeveloperAimSmoothing(float(number("aim_smooth", 0.2)));
+    style.crosshair = unsigned(number("crosshair", 0)) % 4;
+    style.crosshairColor = unsigned(number("crosshair_color", style.crosshairColor)) % 8;
+    style.crosshairSize = std::clamp(int(number("crosshair_size", style.crosshairSize)), 2, 40);
+    style.menuTheme = unsigned(number("menu_theme", 0)) % unsigned(EspStyle::kThemes.size());
+    style.menuOpacity = BYTE(std::clamp(number("menu_opacity", style.menuOpacity), 102.0, 255.0));
     if (const float speed = float(number("speed", 1)); speed != 1) requestDeveloperSpeed(speed);
     if (flag("god_mode")) requestDeveloperInvincibility(true);
     if (flag("noclip")) requestDeveloperNoclip(true);
@@ -444,7 +490,10 @@ void CheatsOverlay::saveSettings() const {
            << "\ntracer_color=" << style.tracer << "\nopacity=" << unsigned(style.opacity)
            << "\nhealth=" << style.health << "\ndistance=" << style.distance
            << "\nnames=" << style.names << "\nspeed_graph=" << style.speedGraph
-           << "\nrange=" << style.maxDistance << "\n";
+           << "\nrange=" << style.maxDistance << "\naim_mode=" << developerAimMode()
+           << "\naim_smooth=" << developerAimSmoothing() << "\ncrosshair=" << style.crosshair
+           << "\ncrosshair_color=" << style.crosshairColor << "\ncrosshair_size=" << style.crosshairSize
+           << "\nmenu_theme=" << style.menuTheme << "\nmenu_opacity=" << unsigned(style.menuOpacity) << "\n";
 }
 
 void CheatsOverlay::restoreDefaults() {
@@ -458,6 +507,8 @@ void CheatsOverlay::restoreDefaults() {
     setDeveloperBunnyHopMax(2.5f);
     setDeveloperAirStrafe(false);
     setDeveloperAimKey(0);
+    setDeveloperAimMode(0);
+    setDeveloperAimSmoothing(0.2f);
     requestDeveloperAimbot(false);
     requestDeveloperEspBox(false);
     requestDeveloperEspSkeleton(false);
@@ -484,6 +535,13 @@ void CheatsOverlay::command(int id, int notification) {
     case kAirStrafe: if (clicked) setDeveloperAirStrafe(checked(airStrafe_)); return;
     case kSpeedGraph: if (clicked) espStyle().speedGraph = checked(speedGraph_); return;
     case kAimKey: if (clicked) beginKeyCapture(); return;
+    case kRemoveSpawns: if (clicked) requestDeveloperRemoveSpawns(); break;
+    case kSavePosition: if (clicked) requestDeveloperSavePosition(); break;
+    case kLoadPosition: if (clicked) requestDeveloperLoadPosition(); break;
+    case kAimMode: if (clicked) { setDeveloperAimMode(1 - developerAimMode()); refreshStyle(); } return;
+    case kCrosshair: if (clicked) { espStyle().crosshair = (espStyle().crosshair + 1) % 4; refreshStyle(); } return;
+    case kCrosshairColor: if (clicked) cycleColor(espStyle().crosshairColor, crosshairColor_, L"COLOR"); return;
+    case kTheme: if (clicked) { espStyle().menuTheme = (espStyle().menuTheme + 1) % unsigned(EspStyle::kThemes.size()); applyTheme(); } return;
     case kUnlock: if (clicked && developerSnapshot().hasActivePlayer) requestDeveloperUnlockDarkness(); break;
     case kMaxDarkness: if (clicked && developerSnapshot().hasActivePlayer) requestDeveloperMaxDarkness(); break;
     case kAimbot: if (clicked) requestDeveloperAimbot(checked(aimbot_)); break;
@@ -535,6 +593,18 @@ void CheatsOverlay::refreshStyle() {
     setCheck(health_, style.health);
     setCheck(distance_, style.distance);
     setCheck(airStrafe_, developerAirStrafe());
+    SetWindowTextW(aimMode_, developerAimMode() == 1 ? L"TARGET: NEAREST BY DISTANCE" : L"TARGET: NEAREST TO CROSSHAIR");
+    const int smooth = int(developerAimSmoothing() * 100 + 0.5f);
+    SendMessageW(aimSmooth_, TBM_SETPOS, TRUE, LPARAM(smooth));
+    SetWindowTextW(aimSmoothValue_, (std::to_wstring(smooth) + L"%").c_str());
+    static constexpr const wchar_t* kCrosshairs[]{L"CROSSHAIR: OFF", L"CROSSHAIR: DOT", L"CROSSHAIR: CROSS", L"CROSSHAIR: CIRCLE"};
+    SetWindowTextW(crosshair_, kCrosshairs[style.crosshair % 4]);
+    label(crosshairColor_, L"COLOR", style.crosshairColor);
+    SendMessageW(crosshairSize_, TBM_SETPOS, TRUE, LPARAM(style.crosshairSize));
+    SetWindowTextW(crosshairSizeValue_, (std::to_wstring(style.crosshairSize) + L" PX").c_str());
+    SetWindowTextW(theme_, (std::wstring(L"THEME: ") + EspStyle::kThemes[style.menuTheme % EspStyle::kThemes.size()].name).c_str());
+    SendMessageW(menuOpacity_, TBM_SETPOS, TRUE, LPARAM(style.menuOpacity * 100 / 255));
+    SetWindowTextW(menuOpacityValue_, (std::to_wstring(style.menuOpacity * 100 / 255) + L"%").c_str());
     setCheck(speedGraph_, style.speedGraph);
     if (!capturingKey_) {
         const auto key = developerAimKey();
@@ -562,6 +632,18 @@ void CheatsOverlay::slider(HWND control) {
     if (control == cameraFov_) {
         // Session change; Video Settings saves the camera FOV permanently.
         setFieldOfViewSetting(position < 60 ? kOriginalFov : float((std::min)(position, 120)));
+        refreshStyle();
+        return;
+    }
+    if (control == aimSmooth_) {
+        setDeveloperAimSmoothing(float(std::clamp(position, 5, 100)) / 100);
+        refreshStyle();
+        return;
+    }
+    if (control == crosshairSize_) { style.crosshairSize = std::clamp(position, 2, 40); refreshStyle(); return; }
+    if (control == menuOpacity_) {
+        style.menuOpacity = BYTE(std::clamp(position, 40, 100) * 255 / 100);
+        SetLayeredWindowAttributes(window_, 0, style.menuOpacity, LWA_ALPHA);
         refreshStyle();
         return;
     }
@@ -614,14 +696,14 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
     // Classic (unthemed) controls take their colors from here.
     if (message == WM_CTLCOLORSTATIC || message == WM_CTLCOLORBTN) {
         const HDC dc = HDC(key);
-        SetBkColor(dc, kBackground);
-        SetTextColor(dc, IsWindowEnabled(HWND(detail)) ? kText : kDim);
+        SetBkColor(dc, theme().background);
+        SetTextColor(dc, IsWindowEnabled(HWND(detail)) ? theme().text : kDim);
         return LRESULT(background_);
     }
     if (message == WM_CTLCOLORLISTBOX || message == WM_CTLCOLOREDIT) {
         const HDC dc = HDC(key);
-        SetBkColor(dc, kField);
-        SetTextColor(dc, kText);
+        SetBkColor(dc, theme().field);
+        SetTextColor(dc, theme().text);
         return LRESULT(field_);
     }
     if (message == WM_COMMAND) { command(LOWORD(key), HIWORD(key)); return 0; }
@@ -637,7 +719,8 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
         capturingKey_ = false;
         saveSettings();
         SetWindowLongPtrW(closed, GWLP_USERDATA, 0);
-        window_ = speed_ = invincible_ = noclip_ = infiniteAmmo_ = darklingGod_ = bunnyHop_ = speedometer_ = hopMax_ = hopMaxValue_ = airStrafe_ = speedGraph_ = aimKey_ = unlock_ = maxDarkness_ = aimbot_ =
+        window_ = speed_ = invincible_ = noclip_ = infiniteAmmo_ = darklingGod_ = bunnyHop_ = speedometer_ = hopMax_ = hopMaxValue_ = airStrafe_ = speedGraph_ = aimKey_ = aimMode_ = aimSmooth_ = aimSmoothValue_ = crosshair_ =
+                crosshairColor_ = crosshairSize_ = crosshairSizeValue_ = theme_ = menuOpacity_ = menuOpacityValue_ = unlock_ = maxDarkness_ = aimbot_ =
             weapons_ = give_ = box_ = skeleton_ = mission_ = load_ = shortcut_ = defaults_ = status_ =
             tracers_ = boxColor_ = boneColor_ = tracerColor_ = opacity_ = opacityValue_ = fov_ = fovValue_ =
             fovCircle_ = cameraFov_ = cameraFovValue_ = health_ = distance_ = names_ = maxDistance_ = maxDistanceValue_ = spawn_ = spawnButton_ = nullptr;
