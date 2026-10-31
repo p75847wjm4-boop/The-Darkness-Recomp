@@ -231,7 +231,7 @@ press F2 to resume mouse control. Options last for this session only.
 - **Aimbot tuning:** choose the target nearest the crosshair or nearest by distance, and how quickly the aim moves (**Aim speed**; 100% is the fastest that stays steady).
 - **Crosshair:** off, dot, cross or circle, with a color and size.
 - **ESP filter:** **Enemies only** hides civilians and story characters from the ESP and the aimbot (judged from their name keys).
-- **Extras:** **Radar** shows a 50 m minimap in the top-right corner (enemies in the box color, friendlies white, view direction up). **Health bars** draws a bar beside each box, scaled to the highest health seen for that character.
+- **Extras:** **Radar** shows a 50 m minimap in the top-right corner (enemies in the box color, friendlies white, view direction up). **Health bars** draws a bar beside each box, scaled to the highest health seen for that character. **Third person** pulls the gameplay camera 1-8 m behind the player (cutscene and scripted cameras are left alone; the camera can clip through walls).
 - **Menu:** cycle the F7 menu **Theme** and set its **Opacity**.
 - **Spawn:** **Remove spawned** deletes every character you spawned. The speedometer also shows the current hop run's time and best speed.
 - Cheat settings are saved to `DarkRecomp.cheats.ini` each time the overlay closes and restored on the next start.

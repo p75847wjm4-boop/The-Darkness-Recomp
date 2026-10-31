@@ -26,7 +26,7 @@ enum : int {
     kSpeed = 2001, kInvincible, kNoclip, kInfiniteAmmo, kUnlock, kMaxDarkness, kAimbot,
     kWeapons, kGive, kBox, kSkeleton, kMission, kLoad, kShortcut, kDefaults, kProbe,
     kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov, kHealth, kSpawnName, kSpawn, kDistance, kMaxDistance, kNames, kDarklingGod, kBunnyHop, kSpeedometer, kHopMax, kAirStrafe, kSpeedGraph, kAimKey, kRemoveSpawns, kSavePosition, kLoadPosition, kAimMode, kAimSmooth,
-    kCrosshair, kCrosshairColor, kCrosshairSize, kTheme, kMenuOpacity, kEnemiesOnly, kRadar, kHealthBars
+    kCrosshair, kCrosshairColor, kCrosshairSize, kTheme, kMenuOpacity, kEnemiesOnly, kRadar, kHealthBars, kThirdPerson, kThirdDistance
 };
 constexpr int kWidth = 960, kHeight = 704;
 constexpr COLORREF kDim = RGB(140, 140, 140);
@@ -296,9 +296,13 @@ void CheatsOverlay::createControls() {
     group(window_, L"ESP FILTER", 640, 440, 304, 64);
     enemiesOnly_ = check(window_, L"ENEMIES ONLY (ESP AND AIMBOT)", 654, 466, 276, kEnemiesOnly);
 
-    group(window_, L"EXTRAS", 640, 512, 304, 60);
+    group(window_, L"EXTRAS", 640, 512, 304, 92);
     radar_ = check(window_, L"RADAR", 654, 534, 130, kRadar);
     healthBars_ = check(window_, L"HEALTH BARS", 796, 534, 134, kHealthBars);
+    thirdPerson_ = check(window_, L"THIRD PERSON", 654, 566, 120, kThirdPerson);
+    thirdDistance_ = control(window_, TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 776, 564, 116, 26, kThirdDistance);
+    SendMessageW(thirdDistance_, TBM_SETRANGE, FALSE, MAKELPARAM(1, 8)); // Meters behind the player.
+    thirdDistanceValue_ = control(window_, L"STATIC", L"", 0, 894, 568, 44, 18);
     refreshStyle();
 }
 
@@ -453,6 +457,8 @@ void CheatsOverlay::useSettingsFile(const std::filesystem::path& path) {
     style.distance = number("distance", style.distance) != 0;
     style.names = number("names", style.names) != 0;
     style.healthBars = number("health_bars", style.healthBars) != 0;
+    setDeveloperThirdPerson(flag("third_person"));
+    setDeveloperThirdPersonDistance(float(number("third_person_distance", 3)));
     style.speedGraph = number("speed_graph", style.speedGraph) != 0;
     style.enemiesOnly = number("enemies_only", style.enemiesOnly) != 0;
     setDeveloperEnemiesOnly(style.enemiesOnly);
@@ -497,6 +503,7 @@ void CheatsOverlay::saveSettings() const {
            << "\nair_strafe=" << developerAirStrafe() << "\nbox=" << snapshot.espBox
            << "\nskeleton=" << snapshot.espSkeleton << "\ntracers=" << snapshot.espTracers
            << "\nradar=" << snapshot.espRadar << "\nhealth_bars=" << style.healthBars
+           << "\nthird_person=" << developerThirdPerson() << "\nthird_person_distance=" << developerThirdPersonDistance()
            << "\naimbot=" << snapshot.aimbot << "\naim_key=" << developerAimKey()
            << "\naim_fov=" << style.aimFov << "\nfov_circle=" << style.fovCircle
            << "\nbox_color=" << style.box << "\nbone_color=" << style.bone
@@ -523,6 +530,8 @@ void CheatsOverlay::restoreDefaults() {
     setDeveloperAimMode(0);
     setDeveloperAimSmoothing(0.66f);
     setDeveloperEnemiesOnly(false);
+    setDeveloperThirdPerson(false);
+    setDeveloperThirdPersonDistance(3);
     requestDeveloperAimbot(false);
     requestDeveloperEspBox(false);
     requestDeveloperEspSkeleton(false);
@@ -573,6 +582,7 @@ void CheatsOverlay::command(int id, int notification) {
     case kFovCircle: if (clicked) espStyle().fovCircle = checked(fovCircle_); return;
     case kHealth: if (clicked) espStyle().health = checked(health_); return;
     case kHealthBars: if (clicked) espStyle().healthBars = checked(healthBars_); return;
+    case kThirdPerson: if (clicked) setDeveloperThirdPerson(checked(thirdPerson_)); return;
     case kRadar: if (clicked) requestDeveloperEspRadar(checked(radar_)); break;
     case kDistance: if (clicked) espStyle().distance = checked(distance_); return;
     case kNames: if (clicked) espStyle().names = checked(names_); return;
@@ -613,6 +623,12 @@ void CheatsOverlay::refreshStyle() {
     setCheck(fovCircle_, style.fovCircle);
     setCheck(health_, style.health);
     setCheck(healthBars_, style.healthBars);
+    setCheck(thirdPerson_, developerThirdPerson());
+    {
+        const int meters = int(developerThirdPersonDistance() + 0.5f);
+        SendMessageW(thirdDistance_, TBM_SETPOS, TRUE, LPARAM(meters));
+        SetWindowTextW(thirdDistanceValue_, (std::to_wstring(meters) + L" M").c_str());
+    }
     setCheck(distance_, style.distance);
     setCheck(airStrafe_, developerAirStrafe());
     SetWindowTextW(aimMode_, developerAimMode() == 1 ? L"TARGET: NEAREST BY DISTANCE" : L"TARGET: NEAREST TO CROSSHAIR");
@@ -655,6 +671,11 @@ void CheatsOverlay::slider(HWND control) {
     if (control == cameraFov_) {
         // Session change; Video Settings saves the camera FOV permanently.
         setFieldOfViewSetting(position < 60 ? kOriginalFov : float((std::min)(position, 150)));
+        refreshStyle();
+        return;
+    }
+    if (control == thirdDistance_) {
+        setDeveloperThirdPersonDistance(float(std::clamp(position, 1, 8)));
         refreshStyle();
         return;
     }
@@ -746,7 +767,7 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
                 crosshairColor_ = crosshairSize_ = crosshairSizeValue_ = theme_ = menuOpacity_ = menuOpacityValue_ = enemiesOnly_ = unlock_ = maxDarkness_ = aimbot_ =
             weapons_ = give_ = box_ = skeleton_ = mission_ = load_ = shortcut_ = defaults_ = status_ =
             tracers_ = boxColor_ = boneColor_ = tracerColor_ = opacity_ = opacityValue_ = fov_ = fovValue_ =
-            fovCircle_ = cameraFov_ = cameraFovValue_ = health_ = distance_ = names_ = maxDistance_ = maxDistanceValue_ = spawn_ = spawnButton_ = radar_ = healthBars_ = nullptr;
+            fovCircle_ = cameraFov_ = cameraFovValue_ = health_ = distance_ = names_ = maxDistance_ = maxDistanceValue_ = spawn_ = spawnButton_ = radar_ = healthBars_ = thirdPerson_ = thirdDistance_ = thirdDistanceValue_ = nullptr;
         displayedStatus_.clear();
         releaseInputGate();
         if (restoreFocus && IsWindow(owner_)) SetFocus(owner_);

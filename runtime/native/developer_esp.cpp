@@ -10,6 +10,7 @@
 #include <atomic>
 #include <bit>
 #include <cmath>
+#include <cstdio>
 #include <mutex>
 #include <unordered_map>
 
@@ -22,6 +23,8 @@ namespace {
 // character's RPG object: actor+656 -> +32 -> +24 -> [0].
 constexpr uint32_t kNpcVtable = 0x820626C8;
 std::atomic<bool> enemiesOnly{false};
+std::atomic<bool> thirdPerson{false};
+std::atomic<float> thirdPersonMeters{3};
 constexpr uint32_t kMatrix = 16;
 constexpr float kEyeHeight = 52, kAimHeight = 46;
 constexpr float kAimRange = 4000;
@@ -251,6 +254,12 @@ void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
         next.radar = radar;
         next.aimbot = aimbot;
         next.aimFovDegrees = aimFov.load(std::memory_order_relaxed);
+        // Draw from the pulled-back third-person camera, matching what is rendered.
+        if (thirdPerson.load(std::memory_order_relaxed)) {
+            const float back = thirdPersonMeters.load(std::memory_order_relaxed) * 32;
+            for (int i = 0; i < 3; ++i) next.eye[i] -= next.forward[i] * back;
+            next.eye[2] += 12;
+        }
         const auto poses = esp ? currentPoses(base) : std::vector<Pose>{};
         const auto objects = PPC_LOAD_U32(player.server + 1460);
         if (committed(base, objects, 28)) {
@@ -312,6 +321,37 @@ void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
         it = now - it->second.tick > kHoldMs ? held.erase(it) : std::next(it);
     std::lock_guard lock(snapshotMutex);
     current = std::move(next);
+}
+
+void setDeveloperThirdPerson(bool enabled) noexcept { thirdPerson.store(enabled, std::memory_order_relaxed); }
+bool developerThirdPerson() noexcept { return thirdPerson.load(std::memory_order_relaxed); }
+void setDeveloperThirdPersonDistance(float meters) noexcept {
+    if (std::isfinite(meters)) thirdPersonMeters.store(std::clamp(meters, 1.0f, 8.0f), std::memory_order_relaxed);
+}
+float developerThirdPersonDistance() noexcept { return thirdPersonMeters.load(std::memory_order_relaxed); }
+
+void applyDeveloperThirdPerson(PPCContext& ctx, uint8_t* base, uint32_t client) {
+    if (!thirdPerson.load(std::memory_order_relaxed)) return;
+    EspSnapshot view;
+    if (!clientView(ctx, base, client, view)) return;
+    // Camera rows are 16 bytes apart; row 3 (+48) is the position.
+    const uint32_t position = client + 0x7F0 + 48;
+    float eye[3];
+    for (int i = 0; i < 3; ++i) {
+        eye[i] = f32(base, position + i * 4);
+        if (!std::isfinite(eye[i])) return;
+    }
+    // Leave scripted and cutscene cameras alone: move only one at the player's head.
+    const float dx = eye[0] - view.eye[0], dy = eye[1] - view.eye[1], dz = eye[2] - view.eye[2];
+    static std::atomic<bool> logged{false};
+    if (!logged.exchange(true))
+        std::fprintf(stderr, "[ThirdPerson] camera %.1f %.1f %.1f, player eye %.1f %.1f %.1f\n",
+                     eye[0], eye[1], eye[2], view.eye[0], view.eye[1], view.eye[2]);
+    if (dx * dx + dy * dy + dz * dz > 64 * 64) return;
+    const float back = thirdPersonMeters.load(std::memory_order_relaxed) * 32;
+    const float* f = view.forward;
+    const float moved[3]{eye[0] - f[0] * back, eye[1] - f[1] * back, eye[2] - f[2] * back + 12};
+    for (int i = 0; i < 3; ++i) PPC_STORE_U32(position + i * 4, std::bit_cast<uint32_t>(moved[i]));
 }
 
 void setDeveloperEnemiesOnly(bool enabled) noexcept { enemiesOnly.store(enabled, std::memory_order_relaxed); }

@@ -185,6 +185,17 @@ void ConfigureGameplayFovBaselineMidAsmHook(PPCRegister& state, PPCRegister& val
     rememberBaseline(state.u32, static_cast<float>(value.f64), true);
 }
 
+// Client camera update: (client, camera matrix) -> client+0x7F0, which the
+// renderer reads through 82499FF8. The third-person view adjusts its result.
+extern "C" PPC_FUNC(__imp__sub_82499C88);
+PPC_FUNC(sub_82499C88) {
+    const auto client = ctx.r3.u32;
+    __imp__sub_82499C88(ctx, base);
+    if (!developerThirdPerson()) return;
+    const ScopedMathMode mathMode;
+    applyDeveloperThirdPerson(ctx, base, client);
+}
+
 extern "C" PPC_FUNC(__imp__sub_8249A030);
 PPC_FUNC(sub_8249A030) {
     DarkRecomp::Native::StallProfiler::Scope stallProfile(DarkRecomp::Native::StallProfiler::Section::Guest, __func__, 0x8249A030u, uint32_t(ctx.lr));
