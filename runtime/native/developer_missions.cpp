@@ -200,11 +200,19 @@ bool canLoadDeveloperMission(uint8_t* base, uint32_t client) {
     return method(base, PPC_LOAD_U32(systemGlobal), 36) && callable(base, executeString);
 }
 
-bool executeDeveloperScript(PPCContext& ctx, uint8_t* base, std::string_view script, std::string& status) {
-    if (script.empty() || script.size() >= 380) { status = "Command must be 1-379 characters."; return false; }
-    if (!mapped(base, systemGlobal, 4) || !callable(base, executeString)) {
-        status = "The original console is unavailable."; return false;
+bool loadDeveloperMission(PPCContext& ctx, uint8_t* base, uint32_t client,
+                          std::string_view id, std::string& status) {
+    const auto* destination = destinationFor(id);
+    if (!destination) { status = "Unknown mission."; return false; }
+    if (!canLoadDeveloperMission(base, client)) { status = "Mission loading is unavailable."; return false; }
+    const auto directory = memory->gameDirectory() / "Content" / "Xdf";
+    std::error_code error;
+    for (const auto suffix : {"_Common.XDF", "_Precache.XDF"}) {
+        if (!std::filesystem::is_regular_file(directory / (std::string(destination->map) + suffix), error)) {
+            status = "The selected mission archives are missing."; return false;
+        }
     }
+    const auto script = developerMissionCommand(id, client == 0);
     auto call = ctx;
     constexpr uint32_t frameSize = 768;
     if (call.r1.u64 < frameSize || !mapped(base, call.r1.u32 - frameSize, frameSize, true)) {
@@ -219,9 +227,8 @@ bool executeDeveloperScript(PPCContext& ctx, uint8_t* base, std::string_view scr
         PPCContext& call; uint8_t* base; uint32_t reference;
         ~ReleaseReference() { call.r3.u64 = reference; sub_820C1100(call, base); }
     } release{call, base, reference};
-    if (!console) { status = "The original console is unavailable."; return false; }
-    std::memcpy(base + raw, script.data(), script.size());
-    PPC_STORE_U8(raw + script.size(), 0);
+    if (!console) { status = "The original campaign console is unavailable."; return false; }
+    std::memcpy(base + raw, script.c_str(), script.size() + 1);
     call.r3.u64 = string; call.r4.u64 = raw;
     sub_821F86A8(call, base); // Original CStr owns its allocated backing.
     struct ReleaseString {
@@ -237,23 +244,6 @@ bool executeDeveloperScript(PPCContext& ctx, uint8_t* base, std::string_view scr
     call.r5.u64 = 0x820555A4; // Original CConsole::ExecuteString error context.
     call.r6.u64 = 0;
     PPCSafeIndirect(call, base, executeString);
-    return true;
-}
-
-bool loadDeveloperMission(PPCContext& ctx, uint8_t* base, uint32_t client,
-                          std::string_view id, std::string& status) {
-    const auto* destination = destinationFor(id);
-    if (!destination) { status = "Unknown mission."; return false; }
-    if (!canLoadDeveloperMission(base, client)) { status = "Mission loading is unavailable."; return false; }
-    const auto directory = memory->gameDirectory() / "Content" / "Xdf";
-    std::error_code error;
-    for (const auto suffix : {"_Common.XDF", "_Precache.XDF"}) {
-        if (!std::filesystem::is_regular_file(directory / (std::string(destination->map) + suffix), error)) {
-            status = "The selected mission archives are missing."; return false;
-        }
-    }
-    const auto script = developerMissionCommand(id, client == 0);
-    if (!executeDeveloperScript(ctx, base, script, status)) return false;
     status = "Queued " + std::string(destination->mission.title) +
              " for the next engine update. Loading a mission may autosave.";
     return true;
