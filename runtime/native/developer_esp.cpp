@@ -330,12 +330,13 @@ void setDeveloperThirdPersonDistance(float meters) noexcept {
 }
 float developerThirdPersonDistance() noexcept { return thirdPersonMeters.load(std::memory_order_relaxed); }
 
-void applyDeveloperThirdPerson(PPCContext& ctx, uint8_t* base, uint32_t client) {
+void applyDeveloperThirdPerson(PPCContext& ctx, uint8_t* base, uint32_t client, uint32_t camera) {
     if (!thirdPerson.load(std::memory_order_relaxed)) return;
     EspSnapshot view;
     if (!clientView(ctx, base, client, view)) return;
     // Camera rows are 16 bytes apart; row 3 (+48) is the position.
-    const uint32_t position = client + 0x7F0 + 48;
+    if (!committed(base, camera, 64)) return;
+    const uint32_t position = camera + 48;
     float eye[3];
     for (int i = 0; i < 3; ++i) {
         eye[i] = f32(base, position + i * 4);

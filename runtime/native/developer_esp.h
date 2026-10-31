@@ -47,13 +47,13 @@ void rememberGameplayFov(float degrees) noexcept;
 // Mouse-look hook: while the aim key is held, the turn toward the locked (or
 // nearest to the crosshair) living NPC, from the client camera at this call,
 // in original look units (1/65536 turn; +yaw turns right, +pitch looks up).
-// Third-person view: after the client computes its render camera (client+0x7F0,
-// 82499C88), pull an ordinary first-person camera back behind the player.
+// Third-person view: after the client's camera query (823F9B00) fills its
+// output matrix, pull an ordinary first-person camera back behind the player.
 void setDeveloperThirdPerson(bool enabled) noexcept;
 bool developerThirdPerson() noexcept;
 void setDeveloperThirdPersonDistance(float meters) noexcept;
 float developerThirdPersonDistance() noexcept;
-void applyDeveloperThirdPerson(PPCContext& ctx, uint8_t* base, uint32_t client);
+void applyDeveloperThirdPerson(PPCContext& ctx, uint8_t* base, uint32_t client, uint32_t camera);
 bool developerAimCorrection(PPCContext& ctx, uint8_t* base, uint32_t client,
                             int64_t& yawUnits, int64_t& pitchUnits);
 }
