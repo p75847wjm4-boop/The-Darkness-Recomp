@@ -40,6 +40,7 @@ struct DeveloperSnapshot {
     bool espBox = false;
     bool espSkeleton = false;
     bool espTracers = false;
+    bool espRadar = false;
     bool aimbot = false;
     std::string level;  // Last level archive opened, e.g. NY1_Chinatown.
     // Spawn templates found to need models the current level lacks.
@@ -85,6 +86,7 @@ void requestDeveloperDarklingGod(bool enabled);
 void requestDeveloperEspBox(bool enabled);
 void requestDeveloperEspSkeleton(bool enabled);
 void requestDeveloperEspTracers(bool enabled);
+void requestDeveloperEspRadar(bool enabled);
 void requestDeveloperAimbot(bool enabled);
 bool requestDeveloperWeapon(std::string_view id);
 // Template names: letters, digits and underscores, up to 63 characters.
@@ -101,6 +103,9 @@ float developerBunnyHopSeconds() noexcept;
 // and the aim speed as a fraction (0.05..1) of the fastest stable correction.
 void setDeveloperAimMode(int mode) noexcept;
 int developerAimMode() noexcept;
+// Aim point: 0 head, 1 chest, 2 body, 3 the bone nearest the crosshair.
+void setDeveloperAimBone(int bone) noexcept;
+int developerAimBone() noexcept;
 void setDeveloperAimSmoothing(float gain) noexcept;
 float developerAimSmoothing() noexcept;
 void requestDeveloperUnlockDarkness();

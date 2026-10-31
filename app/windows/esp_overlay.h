@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <array>
 #include <cstdint>
+#include <unordered_map>
 
 // Click-through, color-keyed layer over the game's client area. The display
 // thread owns it and draws boxes from the value-only ESP snapshot.
@@ -20,6 +21,7 @@ private:
     static LRESULT CALLBACK windowProc(HWND, UINT, WPARAM, LPARAM);
     bool create();
     void paint(HDC dc, int width, int height);
+    void paintRadar(HDC dc, int width);
 
     void releaseBuffer();
 
@@ -35,6 +37,8 @@ private:
     unsigned long long lastSpeedSample_ = 0;
     float lastRun_ = 0, shownRun_ = 0, bestSpeed_ = 0;
     COLORREF penColors_[4]{};
+    // Highest health seen per object id, the full length of its health bar.
+    std::unordered_map<uint32_t, int> maxHealth_;
     BYTE opacity_ = 0;
     int bufferWidth_ = 0, bufferHeight_ = 0;
     ULONGLONG lastPaint_ = 0;

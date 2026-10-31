@@ -38,6 +38,7 @@ std::atomic<long long> mouseTurn{0};
 std::atomic<bool> airStrafe{false};
 std::atomic<unsigned> aimKey{0};
 std::atomic<int> aimMode{0};
+std::atomic<int> aimBone{0};
 std::atomic<float> aimSmoothing{0.66f};
 std::atomic<uint64_t> hopStarted{0};
 std::atomic<float> bunnyHopMax{2.5f};
@@ -101,7 +102,7 @@ void publish(uint64_t request, bool canLoad, bool hasPlayer, std::string_view st
     if (playerProcessed && requestRevision == request && state.playerSpeed == 1 &&
         !state.invincible && !state.noclip && !state.infiniteAmmo &&
         !state.darklingGod && !state.bunnyHop && !state.speedometer &&
-        !state.espBox && !state.espSkeleton && !state.espTracers &&
+        !state.espBox && !state.espSkeleton && !state.espTracers && !state.espRadar &&
         !state.aimbot) playerToolsEnabled = false;
     refreshWorkLocked();
 }
@@ -313,6 +314,8 @@ float developerBunnyHopSeconds() noexcept {
 }
 void setDeveloperAimMode(int mode) noexcept { aimMode.store(mode == 1 ? 1 : 0, std::memory_order_relaxed); }
 int developerAimMode() noexcept { return aimMode.load(std::memory_order_relaxed); }
+void setDeveloperAimBone(int bone) noexcept { aimBone.store(std::clamp(bone, 0, 3), std::memory_order_relaxed); }
+int developerAimBone() noexcept { return aimBone.load(std::memory_order_relaxed); }
 void setDeveloperAimSmoothing(float gain) noexcept {
     if (std::isfinite(gain)) aimSmoothing.store(std::clamp(gain, 0.05f, 1.f), std::memory_order_relaxed);
 }
@@ -340,6 +343,13 @@ void requestDeveloperDarklingGod(bool enabled) {
 void requestDeveloperEspBox(bool enabled) {
     std::lock_guard lock(stateMutex);
     state.espBox = enabled;
+    playerToolsEnabled = true;
+    requested("ESP queued.");
+}
+
+void requestDeveloperEspRadar(bool enabled) {
+    std::lock_guard lock(stateMutex);
+    state.espRadar = enabled;
     playerToolsEnabled = true;
     requested("ESP queued.");
 }
@@ -427,7 +437,7 @@ void resetDeveloperTools() {
 bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool missionReady) {
     std::optional<std::string> mission, weapon, spawn;
     float speed;
-    bool invincible, noclip, infiniteAmmo, darklingGod, bunnyHop, speedometer, espBox, espSkeleton, espTracers, aimbot, enabled, unlockDarkness, maxDarkness, probe, overlay, removeSpawns, savePosition, loadPosition;
+    bool invincible, noclip, infiniteAmmo, darklingGod, bunnyHop, speedometer, espBox, espSkeleton, espTracers, espRadar, aimbot, enabled, unlockDarkness, maxDarkness, probe, overlay, removeSpawns, savePosition, loadPosition;
     uint64_t request;
     {
         std::lock_guard lock(stateMutex);
@@ -447,6 +457,7 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
         espBox = state.espBox;
         espSkeleton = state.espSkeleton;
         espTracers = state.espTracers;
+        espRadar = state.espRadar;
         aimbot = state.aimbot;
         enabled = playerToolsEnabled;
         unlockDarkness = std::exchange(pendingDarknessUnlock, false);
@@ -482,11 +493,11 @@ bool processDeveloperTools(PPCContext& ctx, uint8_t* base, uint32_t client, bool
                                               darklingGod, bunnyHop);
     if (speedometer && enabled) measurePlayerSpeed(base, resolveDeveloperPlayer(call, base, client).actor);
     else playerSpeed.store(-1, std::memory_order_release);
-    const bool esp = espBox || espSkeleton || espTracers;
+    const bool esp = espBox || espSkeleton || espTracers || espRadar;
     setSkeletonCapture((enabled && esp) || overlay);
     if (enabled && (esp || aimbot))
         collectDeveloperEsp(call, base, client, resolveDeveloperPlayer(call, base, client), espBox, espSkeleton,
-                            espTracers, aimbot);
+                            espTracers, espRadar, aimbot);
     else clearDeveloperEsp();
     if (removeSpawns || savePosition || loadPosition) {
         const auto handles = resolveDeveloperPlayer(call, base, client);

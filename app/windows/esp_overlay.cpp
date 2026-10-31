@@ -72,7 +72,7 @@ void EspOverlay::update() {
     const auto& style = espStyle();
     const bool circle = style.fovCircle && view.aimbot;
     const bool speed = DarkRecomp::Native::developerPlayerSpeed() >= 0;
-    const bool visible = ((view.valid && (view.box || view.skeleton || view.tracers || circle)) || speed ||
+    const bool visible = ((view.valid && (view.box || view.skeleton || view.tracers || view.radar || circle)) || speed ||
                           style.crosshair) &&
                          IsWindow(owner_) && !IsIconic(owner_);
     if (!visible) {
@@ -214,6 +214,21 @@ void EspOverlay::paint(HDC dc, int width, int height) {
             LineTo(dc, int(to.x), int(to.y));
         }
         SelectObject(dc, pen_);
+        if (style.healthBars && (view.box || view.skeleton)) {
+            if (maxHealth_.size() > 4096) maxHealth_.clear();
+            int& full = maxHealth_[target.id];
+            full = (std::max)(full, target.health);
+            const float fraction = std::clamp(float(target.health) / float((std::max)(full, 1)), 0.0f, 1.0f);
+            const int barRight = left - 3, barLeft = barRight - 4, top = int(head.y), bottom = int(feet.y);
+            const RECT back{barLeft, top, barRight, bottom};
+            const RECT fill{barLeft, bottom - int((bottom - top) * fraction), barRight, bottom};
+            const HBRUSH dark = CreateSolidBrush(RGB(40, 40, 40));
+            const HBRUSH bar = CreateSolidBrush(RGB(int(255 * (1 - fraction)), int(220 * fraction), 40));
+            FillRect(dc, &back, dark);
+            FillRect(dc, &fill, bar);
+            DeleteObject(dark);
+            DeleteObject(bar);
+        }
         wchar_t label[32];
         int length = 0;
         if (style.health) length = swprintf_s(label, L"%d  ", target.health);
@@ -226,6 +241,7 @@ void EspOverlay::paint(HDC dc, int width, int height) {
             TextOutW(dc, left, int(head.y) - (length > 0 ? 28 : 14), name.c_str(), int(name.size()));
         }
     }
+    if (view.radar) paintRadar(dc, width);
     if (style.crosshair) {
         const COLORREF color = EspStyle::palette[style.crosshairColor % 8];
         const HPEN pen = CreatePen(PS_SOLID, 2, color);
@@ -249,6 +265,46 @@ void EspOverlay::paint(HDC dc, int width, int height) {
     }
     SelectObject(dc, oldBrush);
     SelectObject(dc, oldPen);
+}
+
+// Top-right minimap, rotated so the view direction points up.
+void EspOverlay::paintRadar(HDC dc, int width) {
+    const auto view = developerEspSnapshot();
+    const auto& style = espStyle();
+    constexpr int radius = 90;
+    constexpr float range = 50 * 32; // 50 m in world units.
+    const int cx = width - radius - 16, cy = radius + 16;
+    const HBRUSH back = CreateSolidBrush(RGB(18, 18, 22));
+    const HPEN ring = CreatePen(PS_SOLID, 1, RGB(110, 110, 110));
+    const auto oldBrush = SelectObject(dc, back);
+    const auto oldPen = SelectObject(dc, ring);
+    Ellipse(dc, cx - radius, cy - radius, cx + radius + 1, cy + radius + 1);
+    MoveToEx(dc, cx - radius, cy, nullptr); LineTo(dc, cx + radius, cy);
+    MoveToEx(dc, cx, cy - radius, nullptr); LineTo(dc, cx, cy + radius);
+    // Flatten the view axes; the forward vector carries pitch.
+    float fx = view.forward[0], fy = view.forward[1];
+    const float flat = std::hypot(fx, fy);
+    if (flat > 0.01f) { fx /= flat; fy /= flat; } else { fx = 1; fy = 0; }
+    const HBRUSH enemy = CreateSolidBrush(EspStyle::palette[style.box % 8]);
+    const HBRUSH friendly = CreateSolidBrush(RGB(230, 230, 230));
+    for (const auto& target : view.targets) {
+        const float dx = target.x - view.eye[0], dy = target.y - view.eye[1];
+        float ahead = dx * fx + dy * fy, right = dx * fy - dy * fx;
+        const float distance = std::hypot(ahead, right);
+        if (distance > range) { ahead *= range / distance; right *= range / distance; }
+        const int x = cx + int(right / range * (radius - 4)), y = cy - int(ahead / range * (radius - 4));
+        const RECT dot{x - 3, y - 3, x + 4, y + 4};
+        FillRect(dc, &dot, target.friendly ? friendly : enemy);
+    }
+    // The player: a small arrow at the center pointing up.
+    const HBRUSH self = CreateSolidBrush(RGB(80, 230, 120));
+    SelectObject(dc, self);
+    SelectObject(dc, GetStockObject(NULL_PEN));
+    const POINT arrow[3]{{cx, cy - 7}, {cx - 5, cy + 5}, {cx + 5, cy + 5}};
+    Polygon(dc, arrow, 3);
+    SelectObject(dc, oldBrush);
+    SelectObject(dc, oldPen);
+    for (HGDIOBJ object : {HGDIOBJ(back), HGDIOBJ(ring), HGDIOBJ(enemy), HGDIOBJ(friendly), HGDIOBJ(self)}) DeleteObject(object);
 }
 
 LRESULT CALLBACK EspOverlay::windowProc(HWND window, UINT message, WPARAM key, LPARAM detail) {

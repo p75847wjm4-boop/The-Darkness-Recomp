@@ -238,8 +238,8 @@ void rememberGameplayFov(float degrees) noexcept {
 
 void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
                          const DeveloperPlayerHandles& player, bool box, bool skeleton, bool tracers,
-                         bool aimbot) {
-    const bool esp = box || skeleton || tracers;
+                         bool radar, bool aimbot) {
+    const bool esp = box || skeleton || tracers || radar;
     const auto now = GetTickCount64();
     aimEnabled.store(aimbot, std::memory_order_release);
     regions = {}; // Allocations may have been released since the last update.
@@ -248,6 +248,7 @@ void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
         next.box = box;
         next.skeleton = skeleton;
         next.tracers = tracers;
+        next.radar = radar;
         next.aimbot = aimbot;
         next.aimFovDegrees = aimFov.load(std::memory_order_relaxed);
         const auto poses = esp ? currentPoses(base) : std::vector<Pose>{};
@@ -350,14 +351,31 @@ bool developerAimCorrection(PPCContext& ctx, uint8_t* base, uint32_t client,
     EspSnapshot view;
     if (targets.empty() || !clientView(ctx, base, client, view)) return false;
     const float* f = view.forward;
-    const auto direction = [&](const EspTarget& target, float& x, float& y, float& z) {
-        const float aimZ = target.hasHead ? target.head[2] - 2 : target.z + kAimHeight;
-        x = (target.hasHead ? target.head[0] : target.x) - view.eye[0];
-        y = (target.hasHead ? target.head[1] : target.y) - view.eye[1];
-        z = aimZ - view.eye[2];
+    const int bone = developerAimBone();
+    const auto angleTo = [&](float px, float py, float pz, float& x, float& y, float& z) {
+        x = px - view.eye[0]; y = py - view.eye[1]; z = pz - view.eye[2];
         const float length = std::sqrt(x * x + y * y + z * z);
         if (length < 1 || length > kAimRange) return 10.0f;
         return std::acos(std::clamp((x * f[0] + y * f[1] + z * f[2]) / length, -1.0f, 1.0f));
+    };
+    const auto direction = [&](const EspTarget& target, float& x, float& y, float& z) {
+        // Bones exist only while an ESP mode is on; nearest-bone falls back to the head.
+        if (bone == 3 && !target.bones.empty()) {
+            float best = 10;
+            for (const auto& segment : target.bones)
+                for (int end = 0; end < 6; end += 3) {
+                    float bx, by, bz;
+                    const float angle = angleTo(segment[end], segment[end + 1], segment[end + 2], bx, by, bz);
+                    if (angle < best) { best = angle; x = bx; y = by; z = bz; }
+                }
+            if (best < 10) return best;
+        }
+        const float headZ = target.hasHead ? target.head[2] - 2 : target.z + kAimHeight;
+        // Chest and body sit between the head and the feet, over the feet.
+        const float fraction = bone == 1 ? 0.72f : bone == 2 ? 0.55f : 1.0f;
+        const float px = target.hasHead && bone != 2 ? target.head[0] : target.x;
+        const float py = target.hasHead && bone != 2 ? target.head[1] : target.y;
+        return angleTo(px, py, target.z + (headZ - target.z) * fraction, x, y, z);
     };
     // Keep the current target while it stays alive and in the cone, so nearby
     // NPCs cannot pull the view back and forth between frames.
