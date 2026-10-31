@@ -26,7 +26,7 @@ enum : int {
     kSpeed = 2001, kInvincible, kNoclip, kInfiniteAmmo, kUnlock, kMaxDarkness, kAimbot,
     kWeapons, kGive, kBox, kSkeleton, kMission, kLoad, kShortcut, kDefaults, kProbe,
     kTracers, kBoxColor, kBoneColor, kTracerColor, kOpacitySlider, kFov, kFovCircle, kCameraFov, kHealth, kSpawnName, kSpawn, kDistance, kMaxDistance, kNames, kDarklingGod, kBunnyHop, kSpeedometer, kHopMax, kAirStrafe, kSpeedGraph, kAimKey, kRemoveSpawns, kSavePosition, kLoadPosition, kAimMode, kAimSmooth,
-    kCrosshair, kCrosshairColor, kCrosshairSize, kTheme, kMenuOpacity, kEnemiesOnly, kRadar, kHealthBars, kAimBone
+    kCrosshair, kCrosshairColor, kCrosshairSize, kTheme, kMenuOpacity, kEnemiesOnly, kRadar, kHealthBars
 };
 constexpr int kWidth = 960, kHeight = 704;
 constexpr COLORREF kDim = RGB(140, 140, 140);
@@ -296,10 +296,9 @@ void CheatsOverlay::createControls() {
     group(window_, L"ESP FILTER", 640, 440, 304, 64);
     enemiesOnly_ = check(window_, L"ENEMIES ONLY (ESP AND AIMBOT)", 654, 466, 276, kEnemiesOnly);
 
-    group(window_, L"EXTRAS", 640, 512, 304, 92);
+    group(window_, L"EXTRAS", 640, 512, 304, 60);
     radar_ = check(window_, L"RADAR", 654, 534, 130, kRadar);
     healthBars_ = check(window_, L"HEALTH BARS", 796, 534, 134, kHealthBars);
-    aimBone_ = button(window_, L"", 654, 566, 276, kAimBone);
     refreshStyle();
 }
 
@@ -464,7 +463,6 @@ void CheatsOverlay::useSettingsFile(const std::filesystem::path& path) {
     setDeveloperAirStrafe(flag("air_strafe"));
     setDeveloperAimKey(unsigned(number("aim_key", 0)));
     setDeveloperAimMode(int(number("aim_mode", 0)));
-    setDeveloperAimBone(int(number("aim_bone", 0)));
     setDeveloperAimSmoothing(float(number("aim_speed2", 0.66)));
     style.crosshair = unsigned(number("crosshair", 0)) % 4;
     style.crosshairColor = unsigned(number("crosshair_color", style.crosshairColor)) % 8;
@@ -499,7 +497,6 @@ void CheatsOverlay::saveSettings() const {
            << "\nair_strafe=" << developerAirStrafe() << "\nbox=" << snapshot.espBox
            << "\nskeleton=" << snapshot.espSkeleton << "\ntracers=" << snapshot.espTracers
            << "\nradar=" << snapshot.espRadar << "\nhealth_bars=" << style.healthBars
-           << "\naim_bone=" << developerAimBone()
            << "\naimbot=" << snapshot.aimbot << "\naim_key=" << developerAimKey()
            << "\naim_fov=" << style.aimFov << "\nfov_circle=" << style.fovCircle
            << "\nbox_color=" << style.box << "\nbone_color=" << style.bone
@@ -524,7 +521,6 @@ void CheatsOverlay::restoreDefaults() {
     setDeveloperAirStrafe(false);
     setDeveloperAimKey(0);
     setDeveloperAimMode(0);
-    setDeveloperAimBone(0);
     setDeveloperAimSmoothing(0.66f);
     setDeveloperEnemiesOnly(false);
     requestDeveloperAimbot(false);
@@ -578,7 +574,6 @@ void CheatsOverlay::command(int id, int notification) {
     case kHealth: if (clicked) espStyle().health = checked(health_); return;
     case kHealthBars: if (clicked) espStyle().healthBars = checked(healthBars_); return;
     case kRadar: if (clicked) requestDeveloperEspRadar(checked(radar_)); break;
-    case kAimBone: if (clicked) { setDeveloperAimBone((developerAimBone() + 1) % 4); refreshStyle(); } return;
     case kDistance: if (clicked) espStyle().distance = checked(distance_); return;
     case kNames: if (clicked) espStyle().names = checked(names_); return;
     case kSpawn: if (clicked) spawn(); return;
@@ -618,10 +613,6 @@ void CheatsOverlay::refreshStyle() {
     setCheck(fovCircle_, style.fovCircle);
     setCheck(health_, style.health);
     setCheck(healthBars_, style.healthBars);
-    {
-        static constexpr const wchar_t* bones[]{L"AIM AT: HEAD", L"AIM AT: CHEST", L"AIM AT: BODY", L"AIM AT: NEAREST BONE"};
-        SetWindowTextW(aimBone_, bones[developerAimBone() & 3]);
-    }
     setCheck(distance_, style.distance);
     setCheck(airStrafe_, developerAirStrafe());
     SetWindowTextW(aimMode_, developerAimMode() == 1 ? L"TARGET: NEAREST BY DISTANCE" : L"TARGET: NEAREST TO CROSSHAIR");
@@ -755,7 +746,7 @@ LRESULT CheatsOverlay::message(UINT message, WPARAM key, LPARAM detail) {
                 crosshairColor_ = crosshairSize_ = crosshairSizeValue_ = theme_ = menuOpacity_ = menuOpacityValue_ = enemiesOnly_ = unlock_ = maxDarkness_ = aimbot_ =
             weapons_ = give_ = box_ = skeleton_ = mission_ = load_ = shortcut_ = defaults_ = status_ =
             tracers_ = boxColor_ = boneColor_ = tracerColor_ = opacity_ = opacityValue_ = fov_ = fovValue_ =
-            fovCircle_ = cameraFov_ = cameraFovValue_ = health_ = distance_ = names_ = maxDistance_ = maxDistanceValue_ = spawn_ = spawnButton_ = radar_ = healthBars_ = aimBone_ = nullptr;
+            fovCircle_ = cameraFov_ = cameraFovValue_ = health_ = distance_ = names_ = maxDistance_ = maxDistanceValue_ = spawn_ = spawnButton_ = radar_ = healthBars_ = nullptr;
         displayedStatus_.clear();
         releaseInputGate();
         if (restoreFocus && IsWindow(owner_)) SetFocus(owner_);

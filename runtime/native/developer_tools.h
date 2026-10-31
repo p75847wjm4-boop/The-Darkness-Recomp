@@ -103,9 +103,6 @@ float developerBunnyHopSeconds() noexcept;
 // and the aim speed as a fraction (0.05..1) of the fastest stable correction.
 void setDeveloperAimMode(int mode) noexcept;
 int developerAimMode() noexcept;
-// Aim point: 0 head, 1 chest, 2 body, 3 the bone nearest the crosshair.
-void setDeveloperAimBone(int bone) noexcept;
-int developerAimBone() noexcept;
 void setDeveloperAimSmoothing(float gain) noexcept;
 float developerAimSmoothing() noexcept;
 void requestDeveloperUnlockDarkness();

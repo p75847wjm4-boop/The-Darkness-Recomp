@@ -38,7 +38,6 @@ std::atomic<long long> mouseTurn{0};
 std::atomic<bool> airStrafe{false};
 std::atomic<unsigned> aimKey{0};
 std::atomic<int> aimMode{0};
-std::atomic<int> aimBone{0};
 std::atomic<float> aimSmoothing{0.66f};
 std::atomic<uint64_t> hopStarted{0};
 std::atomic<float> bunnyHopMax{2.5f};
@@ -314,8 +313,6 @@ float developerBunnyHopSeconds() noexcept {
 }
 void setDeveloperAimMode(int mode) noexcept { aimMode.store(mode == 1 ? 1 : 0, std::memory_order_relaxed); }
 int developerAimMode() noexcept { return aimMode.load(std::memory_order_relaxed); }
-void setDeveloperAimBone(int bone) noexcept { aimBone.store(std::clamp(bone, 0, 3), std::memory_order_relaxed); }
-int developerAimBone() noexcept { return aimBone.load(std::memory_order_relaxed); }
 void setDeveloperAimSmoothing(float gain) noexcept {
     if (std::isfinite(gain)) aimSmoothing.store(std::clamp(gain, 0.05f, 1.f), std::memory_order_relaxed);
 }
