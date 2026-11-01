@@ -25,6 +25,8 @@ constexpr uint32_t kNpcVtable = 0x820626C8;
 std::atomic<bool> enemiesOnly{false};
 std::atomic<bool> thirdPerson{false};
 std::atomic<float> thirdPersonMeters{3};
+// Fraction of the distance the last camera used after stopping at a wall.
+std::atomic<float> thirdPersonScale{1};
 constexpr uint32_t kMatrix = 16;
 constexpr float kEyeHeight = 52, kAimHeight = 46;
 constexpr float kAimRange = 4000;
@@ -256,9 +258,10 @@ void collectDeveloperEsp(PPCContext& ctx, uint8_t* base, uint32_t client,
         next.aimFovDegrees = aimFov.load(std::memory_order_relaxed);
         // Draw from the pulled-back third-person camera, matching what is rendered.
         if (thirdPerson.load(std::memory_order_relaxed)) {
-            const float back = thirdPersonMeters.load(std::memory_order_relaxed) * 32;
+            const float scale = thirdPersonScale.load(std::memory_order_relaxed);
+            const float back = thirdPersonMeters.load(std::memory_order_relaxed) * 32 * scale;
             for (int i = 0; i < 3; ++i) next.eye[i] -= next.forward[i] * back;
-            next.eye[2] += 12;
+            next.eye[2] += 12 * scale;
         }
         const auto poses = esp ? currentPoses(base) : std::vector<Pose>{};
         const auto objects = PPC_LOAD_U32(player.server + 1460);
@@ -349,9 +352,48 @@ void applyDeveloperThirdPerson(PPCContext& ctx, uint8_t* base, uint32_t client, 
         std::fprintf(stderr, "[ThirdPerson] camera %.1f %.1f %.1f, player eye %.1f %.1f %.1f\n",
                      eye[0], eye[1], eye[2], view.eye[0], view.eye[1], view.eye[2]);
     if (dx * dx + dy * dy + dz * dz > 64 * 64) return;
-    const float back = thirdPersonMeters.load(std::memory_order_relaxed) * 32;
+    float back = thirdPersonMeters.load(std::memory_order_relaxed) * 32;
     const float* f = view.forward;
-    const float moved[3]{eye[0] - f[0] * back, eye[1] - f[1] * back, eye[2] - f[2] * back + 12};
+    float moved[3]{eye[0] - f[0] * back, eye[1] - f[1] * back, eye[2] - f[2] * back + 12};
+    float applied = 1;
+    // Stop at walls: the original world line test, as weapon traces use it.
+    const auto player = resolveDeveloperPlayer(ctx, base, client);
+    if (player.server && player.actor && committed(base, player.actor, 0x174)) {
+        auto call = ctx;
+        constexpr uint32_t frame = 0x200;
+        call.r1.u64 -= frame;
+        const uint32_t stack = call.r1.u32, from = stack + 0x60, to = stack + 0x70, info = stack + 0x80;
+        if (committed(base, stack, frame)) {
+            PPC_STORE_U32(stack, ctx.r1.u32);
+            for (int i = 0; i < 3; ++i) {
+                PPC_STORE_U32(from + i * 4, std::bit_cast<uint32_t>(eye[i]));
+                PPC_STORE_U32(to + i * 4, std::bit_cast<uint32_t>(moved[i]));
+            }
+            call.r3.u64 = info;
+            sub_8212ED30(call, base); // Original CCollisionInfo constructor.
+            // 824329D0(world, p0, p1, object flags, intersect flags, mediums,
+            // info, excluded object): world solids only, excluding the player.
+            call.r3.u64 = player.server; call.r4.u64 = from; call.r5.u64 = to;
+            call.r6.u64 = 0; call.r7.u64 = 0x26; call.r8.u64 = 0xB; call.r9.u64 = info;
+            call.r10.s64 = int16_t(PPC_LOAD_U16(player.actor + 0x170));
+            sub_824329D0(call, base);
+            static std::atomic<int> traces{0};
+            if (traces.fetch_add(1, std::memory_order_relaxed) < 6)
+                std::fprintf(stderr, "[ThirdPerson] trace hit=%u flags=%08X fraction=%.3f\n", call.r3.u32 & 0xFF,
+                             PPC_LOAD_U32(info + 0x50), f32(base, info + 0x58));
+            // Info +0x50 bit 30 marks a valid hit; +0x58 is its fraction along the line.
+            if ((call.r3.u32 & 0xFF) && (PPC_LOAD_U32(info + 0x50) & 0x40000000)) {
+                const float fraction = f32(base, info + 0x58);
+                if (std::isfinite(fraction) && fraction >= 0 && fraction < 1) {
+                    // Keep a small gap so the near plane does not cut into the wall.
+                    const float scale = (std::max)(0.0f, fraction - 10 / (std::max)(back, 10.0f));
+                    for (int i = 0; i < 3; ++i) moved[i] = eye[i] + (moved[i] - eye[i]) * scale;
+                    applied = scale;
+                }
+            }
+        }
+    }
+    thirdPersonScale.store(applied, std::memory_order_relaxed);
     for (int i = 0; i < 3; ++i) PPC_STORE_U32(position + i * 4, std::bit_cast<uint32_t>(moved[i]));
 }
 
