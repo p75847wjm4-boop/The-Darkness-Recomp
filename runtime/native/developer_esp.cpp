@@ -374,13 +374,15 @@ void applyDeveloperThirdPerson(PPCContext& ctx, uint8_t* base, uint32_t client, 
             // 824329D0(world, p0, p1, object flags, intersect flags, mediums,
             // info, excluded object): world solids only, excluding the player.
             call.r3.u64 = player.server; call.r4.u64 = from; call.r5.u64 = to;
-            call.r6.u64 = 0; call.r7.u64 = 0x26; call.r8.u64 = 0xB; call.r9.u64 = info;
+            call.r6.u64 = 0; call.r7.u64 = 1; call.r8.u64 = 0xB; // Intersect flag 1: world geometry. call.r9.u64 = info;
             call.r10.s64 = int16_t(PPC_LOAD_U16(player.actor + 0x170));
             sub_824329D0(call, base);
-            static std::atomic<int> traces{0};
-            if (traces.fetch_add(1, std::memory_order_relaxed) < 6)
-                std::fprintf(stderr, "[ThirdPerson] trace hit=%u flags=%08X fraction=%.3f\n", call.r3.u32 & 0xFF,
-                             PPC_LOAD_U32(info + 0x50), f32(base, info + 0x58));
+            static std::atomic<int> traces{0}, hits{0};
+            if (traces.fetch_add(1, std::memory_order_relaxed) < 3 ||
+                ((call.r3.u32 & 0xFF) && hits.fetch_add(1, std::memory_order_relaxed) < 6))
+                std::fprintf(stderr, "[ThirdPerson] trace hit=%u +30=%08X +50=%08X +58=%.3f +60=%.1f %.1f %.1f\n",
+                             call.r3.u32 & 0xFF, PPC_LOAD_U32(info + 0x30), PPC_LOAD_U32(info + 0x50),
+                             f32(base, info + 0x58), f32(base, info + 0x60), f32(base, info + 0x64), f32(base, info + 0x68));
             // Info +0x50 bit 30 marks a valid hit; +0x58 is its fraction along the line.
             if ((call.r3.u32 & 0xFF) && (PPC_LOAD_U32(info + 0x50) & 0x40000000)) {
                 const float fraction = f32(base, info + 0x58);
