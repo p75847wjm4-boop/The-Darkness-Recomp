@@ -362,37 +362,38 @@ void applyDeveloperThirdPerson(PPCContext& ctx, uint8_t* base, uint32_t client, 
         auto call = ctx;
         constexpr uint32_t frame = 0x200;
         call.r1.u64 -= frame;
-        const uint32_t stack = call.r1.u32, from = stack + 0x60, to = stack + 0x70, info = stack + 0x80;
+        const uint32_t stack = call.r1.u32, from = stack + 0x60, to = stack + 0x70;
         if (committed(base, stack, frame)) {
             PPC_STORE_U32(stack, ctx.r1.u32);
-            for (int i = 0; i < 3; ++i) {
-                PPC_STORE_U32(from + i * 4, std::bit_cast<uint32_t>(eye[i]));
-                PPC_STORE_U32(to + i * 4, std::bit_cast<uint32_t>(moved[i]));
-            }
-            call.r3.u64 = info;
-            sub_8212ED30(call, base); // Original CCollisionInfo constructor.
+            for (int i = 0; i < 3; ++i) PPC_STORE_U32(from + i * 4, std::bit_cast<uint32_t>(eye[i]));
+            const auto exclude = int16_t(PPC_LOAD_U16(player.actor + 0x170));
             // 824329D0(world, p0, p1, object flags, intersect flags, mediums,
-            // info, excluded object): world solids only, excluding the player.
-            call.r3.u64 = player.server; call.r4.u64 = from; call.r5.u64 = to;
-            call.r6.u64 = 0; call.r7.u64 = 1; call.r8.u64 = 0xB; // Intersect flag 1: world geometry. call.r9.u64 = info;
-            call.r10.s64 = int16_t(PPC_LOAD_U16(player.actor + 0x170));
-            sub_824329D0(call, base);
-            static std::atomic<int> traces{0}, hits{0};
-            if (traces.fetch_add(1, std::memory_order_relaxed) < 3 ||
-                ((call.r3.u32 & 0xFF) && hits.fetch_add(1, std::memory_order_relaxed) < 6))
-                std::fprintf(stderr, "[ThirdPerson] trace hit=%u +30=%08X +50=%08X +58=%.3f +60=%.1f %.1f %.1f\n",
-                             call.r3.u32 & 0xFF, PPC_LOAD_U32(info + 0x30), PPC_LOAD_U32(info + 0x50),
-                             f32(base, info + 0x58), f32(base, info + 0x60), f32(base, info + 0x64), f32(base, info + 0x68));
-            // Info +0x50 bit 30 marks a valid hit; +0x58 is its fraction along the line.
-            if ((call.r3.u32 & 0xFF) && (PPC_LOAD_U32(info + 0x50) & 0x40000000)) {
-                const float fraction = f32(base, info + 0x58);
-                if (std::isfinite(fraction) && fraction >= 0 && fraction < 1) {
-                    // Keep a small gap so the near plane does not cut into the wall.
-                    const float scale = (std::max)(0.0f, fraction - 10 / (std::max)(back, 10.0f));
-                    for (int i = 0; i < 3; ++i) moved[i] = eye[i] + (moved[i] - eye[i]) * scale;
-                    applied = scale;
+            // info, excluded object). Without an info it returns at the first
+            // hit; intersect flag 1 selects world geometry, excluding the player.
+            const auto blocked = [&](float fraction) {
+                for (int i = 0; i < 3; ++i)
+                    PPC_STORE_U32(to + i * 4, std::bit_cast<uint32_t>(eye[i] + (moved[i] - eye[i]) * fraction));
+                auto trace = call;
+                trace.r3.u64 = player.server; trace.r4.u64 = from; trace.r5.u64 = to;
+                trace.r6.u64 = 0; trace.r7.u64 = 1; trace.r8.u64 = 0xB; trace.r9.u64 = 0;
+                trace.r10.s64 = exclude;
+                sub_824329D0(trace, base);
+                return (trace.r3.u32 & 0xFF) != 0;
+            };
+            if (blocked(1)) {
+                // Binary search for the farthest clear point, then keep a gap
+                // so the near plane does not cut into the wall.
+                float clear = 0, hit = 1;
+                for (int step = 0; step < 6; ++step) {
+                    const float middle = (clear + hit) / 2;
+                    (blocked(middle) ? hit : clear) = middle;
                 }
+                applied = (std::max)(0.0f, clear - 8 / (std::max)(back, 8.0f));
+                for (int i = 0; i < 3; ++i) moved[i] = eye[i] + (moved[i] - eye[i]) * applied;
             }
+            static std::atomic<int> logs{0};
+            if (applied < 1 && logs.fetch_add(1, std::memory_order_relaxed) < 6)
+                std::fprintf(stderr, "[ThirdPerson] blocked, camera at %.2f of the distance\n", applied);
         }
     }
     thirdPersonScale.store(applied, std::memory_order_relaxed);
